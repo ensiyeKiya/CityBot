@@ -17,13 +17,10 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-import pid from 'pidusage';
-import si from 'systeminformation';
 import fs from "fs";
 import https from 'https';
 import cors from "cors";
 import { Request, Response } from 'express';
-import { createObjectCsvWriter as csv } from 'csv-writer';
 import { MqttClientFactory, MqttBrokerServer } from '@node-wot/binding-mqtt';
 import { authenticateUser, createUser, initializeDefaultUser } from './auth';
 import { initializeDatabase, getDatabaseClient, saveChatMessage, getChatHistory, clearUserChatHistory, getUserSessions, getSessionMessages, saveConversationTrace, saveUserFeedback, ConversationTrace, TraceStep } from './database';
@@ -141,35 +138,6 @@ new NodeSDK({}).start();
 // Get tracer
 const tracer = trace.getTracer('llm-thing');
 
-// System metrics CSV writer
-const metrics = csv({ 
-  path: 'metrics-client.csv', 
-  header: [
-    {id:'ts', title:'timestamp'},
-    {id:'cpu',title:'cpu_%'},
-    {id:'mem',title:'rss_MB'},
-    {id:'netIn', title:'net_in_kB'},
-    {id:'netOut',title:'net_out_kB'}
-  ]
-});
-
-// Start metrics collection
-setInterval(async () => {
-  try {
-    const { cpu, memory } = await pid(process.pid);
-    const [{ rx_bytes, tx_bytes }] = await si.networkStats();
-    await metrics.writeRecords([{
-      ts  : new Date().toISOString(),
-      cpu : cpu.toFixed(1),
-      mem : (memory/1024/1024).toFixed(1),
-      netIn : (rx_bytes/1024).toFixed(1),
-      netOut: (tx_bytes/1024).toFixed(1)
-    }]);
-  } catch (error) {
-    console.error('Error collecting metrics:', error);
-  }
-}, 5000);
-
 // Load environment variables
 dotenv.config();
 
@@ -263,9 +231,6 @@ const max_tokens = Number(process.env.MAX_TOKENS);
  * This service consumes the main smartbot WoT thing and provides AI conversation capabilities
  */
 async function main() {
-  console.log('🤖 SmartBot LLM Conversation Service');
-  console.log('======================================');
-
   const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
   // Create servient for both client and server functionality
@@ -312,15 +277,11 @@ async function main() {
   if (!mqttUser || !mqttPass) {
     console.warn('⚠️ MQTT credentials not set (MQTT_USER or MQTT_PASS missing). Skipping MQTT server.');
   } else {
-    try {
-      console.log('🔍 MQTT DEBUG: Attempting to create MQTT server with URI:', mqttUri);
-      mqttServer = new MqttBrokerServer({
+    try {      mqttServer = new MqttBrokerServer({
         uri: mqttUri,
         clientId: 'smartbot-llm-server',
         rejectUnauthorized: false // Allow self-signed certificates
-      });
-      console.log('✅ MQTT server created successfully for LLM service');
-    } catch (error) {
+      });    } catch (error) {
       console.error('❌ MQTT server creation failed for LLM service:', error);
       console.error('❌ MQTT Error details:', {
         code: (error as any)?.code,
@@ -334,14 +295,10 @@ async function main() {
   
   if (mqttServer) {
     servient.addServer(mqttServer);
-    console.log('✅ MQTT server added to LLM servient');
-  } else {
-    console.log('⚠️ Skipping MQTT server addition as it failed to initialize');
   }
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`\n${signal} received. Shutting down WoT servient...`);
     try { await servient.shutdown(); } catch (e) { console.error('Shutdown error:', e); }
     process.exit(0);
   };
@@ -398,12 +355,8 @@ async function main() {
             `http://localhost:${WOT_SMARTBOT_PORT}`
           )
         );
-        const thing = await WoT.consume(rewrittenTd);
-        console.log(`✅ Connected to ${td.title}: ${td.description}`);
-        return { thing, td };
-      } catch (error) {
-        console.log(`⏳ ${title} connection attempt ${attempt} failed: ${error instanceof Error ? error.message : error}`);
-        if (attempt === maxRetries) {
+        const thing = await WoT.consume(rewrittenTd);        return { thing, td };
+      } catch (error) {        if (attempt === maxRetries) {
           console.error(`❌ Failed to connect to ${title} Thing after all retries (${serverUrl})`);
           throw error;
         }
@@ -420,8 +373,6 @@ async function main() {
       if (title === 'citymodel') originalCityModelTD = td;
       const actions = td.actions || {};
       const actionNames = Object.keys(actions);
-      console.log(`📋 ${title}: ${actionNames.length} actions → ${actionNames.join(', ') || '(none)'}`);
-
       for (const actionName of actionNames) {
         if (actionToThing.has(actionName)) {
           console.error(`❌ Duplicate action "${actionName}" on ${title} (already registered)`);
@@ -441,20 +392,11 @@ async function main() {
       if (extra.length > 0) {
         console.warn(`⚠️ ${title} has unexpected actions in TD: ${extra.join(', ')}`);
       }
-    }
-
-    console.log(`\n✅ Domain Things registry: ${domainThings.size} things, ${actionToThing.size} actions total`);
-    for (const title of DOMAIN_THING_TITLES) {
+    }    for (const title of DOMAIN_THING_TITLES) {
       const names = [...actionToDomain.entries()]
         .filter(([, t]) => t === title)
-        .map(([a]) => a);
-      console.log(`   ${title}: ${names.join(', ')}`);
-    }
-    console.log('');
-  } catch (error) {
-    console.error('❌ Failed to establish connection to Domain Things');
-    console.log('You can start the server with: npm run watch:start');
-    process.exit(1);
+        .map(([a]) => a);    }  } catch (error) {
+    console.error('❌ Failed to establish connection to Domain Things');    process.exit(1);
   }
 
   const citymodelThing = domainThings.get('citymodel')!;
@@ -468,20 +410,14 @@ async function main() {
         `Unknown action "${toolName}" — not found on any Domain Thing. ` +
         `Available (${actionToThing.size}): ${[...actionToThing.keys()].sort().join(', ')}`
       );
-    }
-    console.log(`🔀 invokeDomainAction: ${toolName} → ${domain}`);
-    return thing.invokeAction(toolName, args);
+    }    return thing.invokeAction(toolName, args);
   }
   
   // Initialize local Qwen model client
   const localModel = new OpenAI({
     apiKey: API_KEY || "",
     baseURL: model_base_url || `http://localhost:${LOCAL_MODEL_PORT}/v1`
-  });
-
-  console.log(`🔍 Local model initialized: baseURL=${localModel.baseURL}`);
-  console.log(`🔒 OpenAI max concurrent calls: ${OPENAI_MAX_CONCURRENT}`);
-  
+  });  
   type MapState = {
     latitude: number;
     longitude: number;
@@ -600,9 +536,7 @@ async function main() {
         roll: mapEvent.camera?.roll || 0,
         timestamp: mapEvent.time || new Date().toISOString()
       };
-      perUserMapState.set(userKey, nextState);
-      console.log(`📡 Map state updated for user ${userKey}:`, nextState);
-    }
+      perUserMapState.set(userKey, nextState);    }
   }
 
   async function applyBuildingSelectedEvent(b: any): Promise<void> {
@@ -616,11 +550,7 @@ async function main() {
     const newGmlId = nextBuilding.gmlId;
 
     perUserSelectedBuilding.set(userKey, nextBuilding);
-    console.log(`🏢 Selected building updated for user ${userKey}:`, nextBuilding);
-
-    if (previousGmlId && newGmlId && previousGmlId !== newGmlId) {
-      console.log(`🧹 Building changed for user ${userKey}: ${previousGmlId} → ${newGmlId} — clearing that user's chat history`);
-      const ownerUserId = parseUserId(b?.userId);
+    if (previousGmlId && newGmlId && previousGmlId !== newGmlId) {      const ownerUserId = parseUserId(b?.userId);
       if (ownerUserId != null) {
         await clearHistoryForUser(ownerUserId);
       }
@@ -630,9 +560,7 @@ async function main() {
   function syncContextFromClientInput(userKey: string, input: any): { mapState: MapState; building: SelectedBuildingState } {
     if (input?.selectedBuilding && typeof input.selectedBuilding === 'object') {
       const building = parseBuildingFromEvent(input.selectedBuilding);
-      perUserSelectedBuilding.set(userKey, building);
-      console.log(`🏢 Client supplied selectedBuilding for user ${userKey}:`, building);
-    }
+      perUserSelectedBuilding.set(userKey, building);    }
     if (input?.mapState && typeof input.mapState === 'object') {
       const ms = input.mapState;
       if (ms.latitude != null && ms.longitude != null) {
@@ -645,9 +573,7 @@ async function main() {
           roll: ms.roll ?? 0,
           timestamp: ms.timestamp || new Date().toISOString()
         };
-        perUserMapState.set(userKey, nextState);
-        console.log(`📡 Client supplied mapState for user ${userKey}:`, nextState);
-      }
+        perUserMapState.set(userKey, nextState);      }
     }
     return {
       mapState: getUserMapState(userKey),
@@ -692,20 +618,14 @@ async function main() {
     await citymodelThing.subscribeEvent('mapView', async (data) => {
       const eventData = typeof data.value === 'function' ? await data.value() : data;
       applyMapViewEvent(eventData);
-    });
-    console.log('✅ Subscribed to citymodel mapView events');
-  } catch (error) {
+    });  } catch (error) {
     console.error('❌ Failed to subscribe to mapView events:', error);
   }
 
   try {
-    await citymodelThing.subscribeEvent('buildingSelected' as any, async (data) => {
-      console.log('🏢 Building selected event received (WoT):', data);
-      const eventData = typeof (data as any).value === 'function' ? await (data as any).value() : data;
+    await citymodelThing.subscribeEvent('buildingSelected' as any, async (data) => {      const eventData = typeof (data as any).value === 'function' ? await (data as any).value() : data;
       await applyBuildingSelectedEvent(eventData);
-    });
-    console.log('✅ Subscribed to citymodel buildingSelected events');
-  } catch (error) {
+    });  } catch (error) {
     console.error('❌ Failed to subscribe to buildingSelected events:', error);
   }
 
@@ -1023,15 +943,12 @@ async function main() {
       reconnectPeriod: 5000
     });
     llmMqttClient.on('connect', () => {
-      console.log('✅ LLM MQTT client connected');
       llmMqttClient.subscribe(
         ['smartbot/events/mapView', 'smartbot/events/buildingSelected'],
         { qos: 0 },
         (err: Error | null) => {
           if (err) {
             console.error('❌ Failed to subscribe to domain MQTT events:', err.message);
-          } else {
-            console.log('✅ Subscribed to smartbot/events/{mapView,buildingSelected} via MQTT');
           }
         }
       );
@@ -1082,8 +999,6 @@ async function main() {
   if (toolSpecs.length !== actionToThing.size) {
     console.warn(`⚠️ toolSpecs count (${toolSpecs.length}) ≠ action registry (${actionToThing.size})`);
   }
-  console.log(`🛠️ LLM tools loaded: ${toolSpecs.length} from ${domainThings.size} Domain Things`);
-
   llmThing.setActionHandler('processConversation', async (params: any) => {
     const span = tracer.startSpan('processConversation');
     try {
@@ -1133,9 +1048,7 @@ async function main() {
       const maxPlanningTurns = 5;
       while (planningTurns < maxPlanningTurns) {
         planningTurns++;
-        const planningStartMs = Date.now();
-        console.log(`🔍 Calling model at ${localModel.baseURL} | Turn ${planningTurns} | ${conversation.length} messages`);
-        
+        const planningStartMs = Date.now();        
         const planningResponse = await withOpenAiRetry(
           `planning turn ${planningTurns}`,
           () => localModel.chat.completions.create({
@@ -1199,9 +1112,7 @@ async function main() {
       let finalContent = getDirectPlanningAnswer(conversation);
       let finalReasoning: string | null = null;
 
-      if (finalContent) {
-        console.log(`♻️ Using planning-turn answer directly (skipped final model call) | ${finalContent.length} chars`);
-      } else {
+      if (finalContent) {      } else {
         // Tools ran or planning returned empty — generate final answer in a separate call
         const finalConversation = [
           ...conversation,
@@ -1322,10 +1233,7 @@ async function main() {
       const { mapState: userMapState, building: userSelectedBuilding } = syncContextFromClientInput(userKey, input);
 
       // Build conversation with system prompt + history + new message
-      const systemPrompt = loadSystemPrompt(userMapState, userSelectedBuilding);
-      console.log('🔍 System prompt:', systemPrompt);
-      console.log(`👤 User id: ${userId} | Session: ${sessionId}`);
-      
+      const systemPrompt = loadSystemPrompt(userMapState, userSelectedBuilding);      
       // Load history from DB into cache on first access, then get in-memory ref
       await loadUserHistory(sessionId);
       const conversationHistory = getUserHistory(sessionId);
@@ -1342,15 +1250,7 @@ async function main() {
       ];
       // Fire-and-forget streaming task
       (async () => {
-        try {
-          console.log(`\n${'='.repeat(80)}`);
-          console.log(`🚀 Starting conversation processing`);
-          console.log(`📝 User message: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
-          console.log(`📊 Conversation length: ${conversation.length} messages (~${Math.round(JSON.stringify(conversation).length / 4)} tokens)`);
-          console.log(`📌 Current map state (user ${userKey}):`, JSON.stringify(userMapState, null, 2));
-          console.log(`📌 Selected building (user ${userKey}):`, JSON.stringify(userSelectedBuilding, null, 2));
-          console.log(`${'='.repeat(80)}\n`);
-          
+        try {          
           // Multi-turn planning phase - execute tools until we get a final response
           const toolsUsed: string[] = [];
           let maxPlanningTurns = 5;
@@ -1412,8 +1312,6 @@ async function main() {
               
               const payloadSize = JSON.stringify(conversation).length;
               const msgRoles = conversation.map((m: any) => m.role + (m.tool_calls ? `(${m.tool_calls.length} calls)` : '')).join(', ');
-              console.log(`📤 Sending to vLLM: ${conversation.length} messages, ~${payloadSize} chars | Roles: [${msgRoles}]`);
-
               // Snapshot the full input context for the trace BEFORE the model call
               inputMessagesSnapshot = conversation.map((m: any) => ({
                 role: m.role,
@@ -1476,17 +1374,7 @@ async function main() {
             const planningElapsedMs = Date.now() - planningStartMs;
             const planMsg = planningResponse.choices[0].message;
             const toolCallsCount = planMsg.tool_calls?.length || 0;
-            const tokensUsed = planningResponse.usage?.total_tokens || 'N/A';
-            console.log(`\n📊 Planning Turn ${planningTurn} Summary:`);
-            console.log(`  ⏱️ Time: ${planningElapsedMs}ms`);
-            console.log(`  🎯 Tokens used: ${tokensUsed}`);
-            console.log(`  🔧 Tool calls: ${toolCallsCount}`);
-            console.log(`  💬 Assistant message: ${planMsg.content ? `"${planMsg.content.substring(0, 100)}${planMsg.content.length > 100 ? '...' : ''}"` : '(empty)'}`);
-            if (toolCallsCount > 0) {
-              console.log(`  📋 Tools being called:`);
-              planMsg.tool_calls?.forEach((tc: any, idx: number) => {
-                console.log(`    ${idx + 1}. ${tc.function?.name}: ${tc.function?.arguments || '(no args)'}`);
-              });
+            const tokensUsed = planningResponse.usage?.total_tokens || 'N/A';            if (toolCallsCount > 0) {              planMsg.tool_calls?.forEach((tc: any, idx: number) => {              });
             }
 
             // Detect repeated plans that could indicate a loop
@@ -1528,9 +1416,7 @@ async function main() {
             };
 
             // Check if tools were called
-            if (planMsg.tool_calls && planMsg.tool_calls.length > 0) {
-              console.log(`\n🔧 Planning turn ${planningTurn} - Tool calls detected: ${planMsg.tool_calls.length}`);
-              
+            if (planMsg.tool_calls && planMsg.tool_calls.length > 0) {              
               // Execute all tool calls for this planning turn
               for (const toolCall of planMsg.tool_calls) {
                 const toolName = toolCall.function.name;
@@ -1541,10 +1427,7 @@ async function main() {
               // Inject caller identity so the smartbot can scope events to this user
               const enrichedArgs = { ...args, _userId: userId };
               
-              // Log tool call details
-              console.log(`\n  🔧 Calling tool: ${toolName}`);
-              console.log(`  📥 Tool arguments:`, JSON.stringify(args, null, 2));
-              
+              // Log tool call details              
               // Emit tool execution update
               emitLLMEvent(userId, 'conversationStream', { 
                 requestId, 
@@ -1561,10 +1444,7 @@ async function main() {
                   const toolElapsed = Date.now() - toolStart;
                   const toolResult = typeof result?.value === 'function' ? await result.value() : result;
                   
-                  // Log tool result
-                  console.log(`  ✅ Tool ${toolName} completed in ${toolElapsed}ms`);
-                  console.log(`  📤 Tool result:`, JSON.stringify(toolResult, null, 2));
-                  
+                  // Log tool result                  
                   // Add tool result to conversation
                   conversation.push({
                     role: 'tool',
@@ -1602,33 +1482,24 @@ async function main() {
                     time_ms: 0
                   });
                 }
-              }
-              
-              console.log(`\n✅ Completed all tool calls for turn ${planningTurn}\n`);
-              if (currentTraceStep) traceSteps.push(currentTraceStep);
+              }              if (currentTraceStep) traceSteps.push(currentTraceStep);
 
               // Continue planning - LLM can now use tool results for next turn
               continue;
               
             } else {
-              // No more tool calls - planning is complete
-              console.log(`✅ Planning complete | ${planningTurn} turns | ${toolsUsed.length} tools: ${toolsUsed.join(', ')}`);
-              if (currentTraceStep) traceSteps.push(currentTraceStep);
+              // No more tool calls - planning is complete              if (currentTraceStep) traceSteps.push(currentTraceStep);
               break;
             }
           }
 
-          if (planningTurn >= maxPlanningTurns) {
-            console.log(`⚠️ Max planning turns reached (${maxPlanningTurns})`);
-          }
+          if (planningTurn >= maxPlanningTurns) {          }
 
           const directPlanningAnswer = getDirectPlanningAnswer(conversation);
           let finalContent = '';
 
           if (directPlanningAnswer) {
-            finalContent = directPlanningAnswer;
-            console.log(`♻️ Using planning-turn answer directly (skipped final stream call) | ${finalContent.length} chars`);
-            emitLLMEvent(userId, 'conversationStream', {
+            finalContent = directPlanningAnswer;            emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
               isFinal: false,
@@ -1712,17 +1583,13 @@ async function main() {
                   finalContent += token;
                   emitLLMEvent(userId, 'conversationStream', { requestId, token, isFinal: false });
 
-                  if (chunkCount === 1) {
-                    console.log('🔧 First token received, streaming active');
-                  }
+                  if (chunkCount === 1) {                  }
                 }
               }
             } catch (streamError) {
               console.error('❌ Streaming error:', streamError);
 
-              if (finalContent.length > 0) {
-                console.log(`⚠️ Using partial content (${finalContent.length} chars)`);
-              } else if (streamCreated) {
+              if (finalContent.length > 0) {              } else if (streamCreated) {
                 finalContent = 'The operation completed successfully, but I encountered an issue generating the response. The action has been executed.';
               } else {
                 finalContent = 'I successfully executed your request (loaded the tiles), though I had trouble connecting to the response generator.';
@@ -1734,8 +1601,6 @@ async function main() {
 
           const processingTime = Date.now() - startTime;
           const processingTimeSeconds = (processingTime / 1000).toFixed(2);
-          console.log(`✅ Response complete | ${processingTimeSeconds}s | ${finalContent.length} chars | Tools: ${toolsUsed.join(', ') || 'none'}`);
-
           // Emit final metadata and save conversation history
           emitLLMEvent(userId, 'conversationStream', { 
             requestId, 
@@ -1785,18 +1650,13 @@ async function main() {
           const maxStoredMessages = 6;
           if (conversationHistory.length > maxStoredMessages) {
             const trimmedHistory = trimConversationHistory(conversationHistory, maxStoredMessages);
-            userConversationHistories.set(sessionId, trimmedHistory);
-            console.log(`🧹 Cleaned conversation history for userId ${userId} (session: ${sessionId}), kept ${trimmedHistory.length} messages`);
-          } else {
+            userConversationHistories.set(sessionId, trimmedHistory);          } else {
             userConversationHistories.set(sessionId, trimConversationHistory(conversationHistory, maxStoredMessages));
           }
           
           // Log current conversation history size with breakdown
           const historyLength = JSON.stringify(conversationHistory).length;
           const toolMsgCount = conversationHistory.filter(m => m.role === 'tool').length;
-          console.log(`📊 Conversation history for userId ${userId} (session: ${sessionId}): ${conversationHistory.length} messages (~${Math.round(historyLength / 4)} tokens)`);
-          console.log(`   ↳ Includes ${toolMsgCount} tool messages (filtered out when sending to reduce tokens)`);
-
         } catch (err) {
           emitLLMEvent(userId, 'conversationStream', { requestId, token: '', isFinal: true, metadata: { error: String(err) } });
         }
@@ -1838,9 +1698,6 @@ async function main() {
       // Use clientRequestId from frontend if provided, otherwise generate one
       const requestId = String(input?.clientRequestId ?? '') || `stt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const startTime = Date.now();
-      
-      console.log(`🎤 STT transcription started with requestId: ${requestId}`);
-
 
       // Fire-and-forget transcription task
       (async () => {
@@ -1867,9 +1724,6 @@ async function main() {
           } catch (err) {
             throw new Error('Invalid base64 audio data');
           }
-
-          console.log(`🎤 Audio buffer size: ${audioBuffer.length} bytes`);
-
           // Call Whisper API
           const apiCallStart = performance.now();
           const response = await fetch("https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo", {
@@ -1887,8 +1741,6 @@ async function main() {
           });
 
           const apiCallTime = performance.now() - apiCallStart;
-          console.log(`🎤 STT API call took: ${apiCallTime.toFixed(2)}ms`);
-
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`STT API error: ${response.status} - ${errorText}`);
@@ -1896,9 +1748,6 @@ async function main() {
 
           const result = await response.json();
           const totalProcessingTime = Date.now() - startTime;
-
-          console.log(`🎤 STT transcription completed in ${totalProcessingTime}ms:`, result.text);
-
           // Emit completion status
           emitLLMEvent(sttUserId, 'sttProgress', {
             requestId: requestId,
@@ -2006,9 +1855,6 @@ async function main() {
       logServerTiming('TTS Processing', processingStart);
       const totalTime = performance.now() - requestStart;
       logServerTiming('TTS Total', requestStart);
-
-      console.log(`✅ TTS completed in ${totalTime.toFixed(2)}ms`);
-
       return {
         success: true,
         audio: base64Content,
@@ -2085,17 +1931,10 @@ async function main() {
   });
 
   // Expose the LLM Thing
-  try {
-    console.log('📡 Attempting to expose LLM Thing...');
-    const td = llmThing.getThingDescription();
-    console.log('📋 Thing Description ID:', td.id);
-    console.log('📋 Thing Description Title:', td.title);
-    
+  try {    const td = llmThing.getThingDescription();    
     
     await llmThing.expose();
-    const thingId = td.id?.split(':').pop() || 'llm';
-    console.log(`🚀 ${td.title} exposed at https://${process.env.SERVER_NAME}/${thingId}`);
-  
+    const thingId = td.id?.split(':').pop() || 'llm';  
   } catch (error) {
     console.error('❌ Failed to expose LLM Thing:', error);
     throw error;
@@ -2127,9 +1966,7 @@ async function main() {
       })
     : undefined;
 
-  if (dbConnected) {
-    console.log('✅ Session store: PostgreSQL');
-  } else {
+  if (!dbConnected) {
     console.error('❌ Session store unavailable — database not connected');
   }
 
@@ -2186,10 +2023,7 @@ async function main() {
           success: false, 
           message: 'Invalid email format'
         });
-      }
-      
-      console.log('📝 Registration attempt:', { email, name });
-      const result = await createUser(email, password, name);
+      }      const result = await createUser(email, password, name);
       res.json(result);
     } catch (error) {
       console.error('  ❌ Registration error:', error);
@@ -2259,32 +2093,22 @@ async function main() {
   // Login
   app.post('/api/auth/login', async (req: Request, res: Response) => {
     try {
-      const { username, password } = req.body;
-      console.log('🔐 Login attempt for user:', username);
-      
+      const { username, password } = req.body;      
       const result = await authenticateUser(username, password);
       
       if (result.success && result.user && req.session) {
-        console.log('  ✅ Authentication successful, setting session');
         req.session.authenticated = true;
         req.session.email = result.user.email;
-        req.session.userId = result.user.id;          // numeric PK from users table
+        req.session.userId = result.user.id;
         req.session.name = result.user.full_name || result.user.email;
-        
-        // Save session explicitly
+
         req.session.save((err) => {
           if (err) {
-            console.error('  ❌ Session save error:', err);
-          } else {
-            console.log('  ✅ Session saved successfully');
-            console.log('  Session ID:', req.sessionID);
-            console.log('  Session data:', JSON.stringify(req.session, null, 2));
+            console.error('Session save error:', err);
           }
         });
-      } else {
-        console.log('  ❌ Authentication failed:', result.message);
       }
-      
+
       res.json(result);
     } catch (error) {
       console.error('  ❌ Login error:', error);
@@ -2306,22 +2130,14 @@ async function main() {
   
   // Check authentication status
   app.get('/api/auth/check', (req: Request, res: Response) => {
-    console.log('🔍 /api/auth/check requested');
-    console.log('  Session ID:', req.sessionID);
-    console.log('  Session authenticated:', req.session?.authenticated);
-    console.log('  Session email:', req.session?.email);
-    console.log('  Cookies:', req.headers.cookie);
-    
     if (req.session && req.session.authenticated) {
-      console.log('  ✅ User is authenticated:', req.session.email, `(id: ${req.session.userId})`);
-      res.json({ 
+      res.json({
         authenticated: true,
         userId: req.session.userId,
         email: req.session.email,
         name: req.session.name
       });
     } else {
-      console.log('  ❌ User is NOT authenticated');
       res.json({ authenticated: false });
     }
   });
@@ -2392,20 +2208,11 @@ async function main() {
   // Reset selected-building state when a new browser session starts (page refresh)
   app.post('/api/session/start', requireAuth, (req: Request, res: Response) => {
     const userKey = userContextKey(req.session?.userId);
-    perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());
-    console.log(`🔄 Selected building reset for user ${userKey} (new browser session)`);
-    res.json({ success: true });
+    perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());    res.json({ success: true });
   });
 
   // Serve configuration endpoint (requires authentication)
-  app.get('/config.js', requireAuth, (req: Request, res: Response) => {
-    console.log('📋 /config.js requested');
-    console.log('  Session ID:', req.sessionID);
-    console.log('  Session data:', JSON.stringify(req.session, null, 2));
-    console.log('  Authenticated:', req.session?.authenticated);
-    console.log('  Email:', req.session?.email);
-    console.log('  Cookies:', req.headers.cookie);
-    
+  app.get('/config.js', requireAuth, (req: Request, res: Response) => {    
     const config = {
       SERVER_NAME: process.env.SERVER_NAME,
       WOT_SMARTBOT_PORT: Number(process.env.WOT_SMARTBOT_PORT) || 8081,
@@ -2432,33 +2239,18 @@ async function main() {
 
   // Serve the main HTML page (requires authentication)
   app.get('/', (req: Request, res: Response) => {
-    console.log('🏠 Main page requested');
-    console.log('  Session ID:', req.sessionID);
-    console.log('  Session authenticated:', req.session?.authenticated);
-    console.log('  Session email:', req.session?.email);
-    console.log('  Session name:', req.session?.name);
-    console.log('  Cookies:', req.headers.cookie);
-    
     if (req.session && req.session.authenticated) {
-      console.log('  ✅ Serving main page for user:', req.session.email, '(', req.session.name, ')');
       res.sendFile(path.join(templatesDir, 'index_citybot.html'));
     } else {
-      console.log('  ❌ Not authenticated, redirecting to login');
       res.redirect('/login');
     }
   });
 
-  function logServerTiming(label: string, startTime: number) {
-    const duration = performance.now() - startTime;
-    console.log(`⏱️ SERVER ${label}: ${duration.toFixed(2)}ms`);
-    return duration;
+  function logServerTiming(_label: string, startTime: number) {
+    return performance.now() - startTime;
   }
 
-  app.listen(WEB_PORT, () => {
-    console.log(`🌐 Web UI available at https://${process.env.SERVER_NAME}`);
-    console.log(`🔗 LLM Service: https://${process.env.SERVER_NAME}/llm`);
-    console.log(`📡 Domain Things: https://${process.env.SERVER_NAME}/{citymodel,airquality,api,knowledge}`);
-  });
+  app.listen(WEB_PORT, () => {});
 }
 
 main().catch((error) => {

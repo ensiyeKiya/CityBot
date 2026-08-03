@@ -36,7 +36,6 @@
     "@types/node": "^18.15.11",
     "@types/node-fetch": "^2.6.11",
     "@types/pg": "^8.10.9",
-    "@types/pidusage": "^2.0.5",
     "eventsource": "^4.0.0",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.1",
@@ -60,7 +59,6 @@
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "csv-writer": "^1.6.0",
     "dotenv": "^16.4.1",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
@@ -69,8 +67,6 @@
     "node-fetch": "^2.7.0",
     "openai": "^4.28.0",
     "pg": "^8.11.3",
-    "pidusage": "^4.0.1",
-    "systeminformation": "^5.27.6",
     "wot-typescript-definitions": "^0.8.0-SNAPSHOT.23",
     "yargs": "^17.7.2"
   }

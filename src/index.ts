@@ -16,9 +16,6 @@
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import dotenv from 'dotenv';
-import pid from 'pidusage';
-import si from 'systeminformation';
-import { createObjectCsvWriter as csv } from 'csv-writer';
 import { initializeDatabase, closeDatabase } from './database';
 import { initializeAirQualityDB, closeAirQualityDB, listAvailableModels, getPredictionHorizonByModel, listAvailableCities } from './airQualityDB';
 import { startServient } from './things/shared';
@@ -29,35 +26,6 @@ import { exposeKnowledgeThing } from './things/knowledgeThing';
 
 // Initialize OpenTelemetry
 new NodeSDK({}).start();
-
-// System metrics CSV writer
-const metrics = csv({
-  path: 'metrics-server.csv',
-  header: [
-    {id:'ts', title:'timestamp'},
-    {id:'cpu',title:'cpu_%'},
-    {id:'mem',title:'rss_MB'},
-    {id:'netIn', title:'net_in_kB'},
-    {id:'netOut',title:'net_out_kB'}
-  ]
-});
-
-// Start metrics collection
-setInterval(async () => {
-  try {
-    const { cpu, memory } = await pid(process.pid);
-    const [{ rx_bytes, tx_bytes }] = await si.networkStats();
-    await metrics.writeRecords([{  // appends one row
-      ts  : new Date().toISOString(),
-      cpu : cpu.toFixed(1),
-      mem : (memory/1024/1024).toFixed(1),
-      netIn : (rx_bytes/1024).toFixed(1),
-      netOut: (tx_bytes/1024).toFixed(1)
-    }]);
-  } catch (error) {
-    console.error('Error collecting metrics:', error);
-  }
-}, 5000);   // 5-second cadence
 
 // Load environment variables
 dotenv.config();

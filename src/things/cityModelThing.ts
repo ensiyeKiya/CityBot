@@ -493,8 +493,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const userId = input?._userId ?? null;
-      console.log('flyTo action received with input:', JSON.stringify(input, null, 2));
-
       // Enhanced input validation
       if (!input) {
         return { error: true, message: 'Input parameters are required' };
@@ -572,9 +570,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           };
 
           (eventData as any).userId = userId;
-          await emitEvent('mapView', eventData);
-          console.log('✅ Successfully emitted mapView event:', JSON.stringify(eventData, null, 2));
-        } catch (error) {
+          await emitEvent('mapView', eventData);        } catch (error) {
           console.error("Error emitting zoom event:", error);
           return { error: true, message: `Failed to emit zoom event: ${error}` };
         }
@@ -616,19 +612,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         ? Math.max(input.height, 500)   // Allow much lower heights for close-up viewing
         : 100000; // Default height only if not specified
       const locationName = input.location || `coordinates (${input.latitude}, ${input.longitude})`;
-      if (input.height && input.height < 500) {
-        console.log(`⚠️  Height ${input.height} too low; using 500 m instead`);
-      }
-
-      console.log('🛰  flyTo → emitting mapView', JSON.stringify({
-        lat: input.latitude,
-        lon: input.longitude,
-        h:   height,
-        head: 0,
-        pitch: -90,
-        roll: 0
-      }, null, 2));
-
+      if (input.height && input.height < 500) {      }
       // Update global camera state
       currentCameraState = {
         latitude: input.latitude,
@@ -660,8 +644,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         // Emit immediately without debouncing for flyTo commands
         (eventData as any).userId = userId;
         await emitEvent('mapView', eventData);
-        console.log('✅ Successfully emitted mapView event for flyTo');
-
         // Mark that we're starting a flight animation AFTER emitting the event
         inFlightAnimation = true;
         flightAnimationEndTime = Date.now() + 4000; // Assume animation takes ~4 seconds
@@ -702,8 +684,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const userId = input?._userId ?? null;
-      console.log('setCameraView action received with input:', JSON.stringify(input, null, 2));
-
       // Enhanced input validation
       if (!input) {
         return { error: true, message: 'Input parameters are required' };
@@ -734,9 +714,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         ? Math.max(input.height, 100)   // Allow much lower heights for close-up viewing
         : 100000; // Default height only if not specified
 
-      if (input.height && input.height < 100) {
-        console.log(`⚠️  Height ${input.height} too low; using 100 m instead`);
-      }
+      if (input.height && input.height < 100) {      }
 
       // Validate camera angles
       const heading = typeof input.heading === 'number' ?
@@ -747,16 +725,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         ((input.roll % 360) + 360) % 360 : 0; // Normalize to 0-360
 
       const locationName = input.location || `coordinates (${input.latitude.toFixed(4)}, ${input.longitude.toFixed(4)})`;
-
-      console.log('🎥 setCameraView → emitting mapView', JSON.stringify({
-        lat: input.latitude,
-        lon: input.longitude,
-        h: height,
-        head: heading,
-        pitch: pitch,
-        roll: roll
-      }, null, 2));
-
       // Update global camera state
       currentCameraState = {
         latitude: input.latitude,
@@ -788,8 +756,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         // Emit immediately without debouncing for setCameraView commands
         (eventData as any).userId = userId;
         await emitEvent('mapView', eventData);
-        console.log('✅ Successfully emitted mapView event for setCameraView');
-
         // Mark that we're starting a flight animation AFTER emitting the event
         inFlightAnimation = true;
         flightAnimationEndTime = Date.now() + 4000; // Assume animation takes ~4 seconds
@@ -831,8 +797,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const userId = input?._userId ?? null;
-      console.log('🎨 Setting visualization style:', input);
-
       // Validate style parameter using imported constants
       if (!input.style || !VALID_STYLES.includes(input.style)) {
         return {
@@ -850,9 +814,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
 
         if (stats) {
           // Generate dynamic style based on actual data ranges
-          styleDefinition = generateDynamicStyle(input.style, stats);
-          console.log(`✅ Generated dynamic style for ${input.style} using database data`);
-        } else {
+          styleDefinition = generateDynamicStyle(input.style, stats);        } else {
           console.warn('⚠️ Could not fetch database data, using static style');
           styleDefinition = STYLE_DEFINITIONS[input.style];
         }
@@ -869,9 +831,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           styleName: styleName,
           styleDefinition: styleDefinition,
           timestamp: new Date().toISOString()
-        });
-        console.log(`✅ Emitted visualizationStyleChanged event: ${input.style}`);
-      } catch (error) {
+        });      } catch (error) {
         console.error("Error emitting visualization style change event:", error);
         return { error: true, message: `Failed to emit visualization style change event: ${error}` };
       }
@@ -904,8 +864,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const userId = input?._userId ?? null;
-      console.log('🔍 Filtering buildings:', input);
-
       // Validate input
       if (!input.filterType) {
         return {
@@ -923,9 +881,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             styleName: 'Default Style',
             styleDefinition: { show: true }, // Default style - just show buildings
             timestamp: new Date().toISOString()
-          });
-          console.log(`✅ Reset visualization to default style`);
-        } catch (error) {
+          });        } catch (error) {
           console.error("Error emitting default style change event:", error);
           return { error: true, message: `Failed to reset visualization style: ${error}` };
         }
@@ -1070,9 +1026,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           styleName: `Filter: ${input.filterType} ${input.filterValue}`,
           styleDefinition: filterStyleDefinition,
           timestamp: new Date().toISOString()
-        });
-        console.log(`✅ Emitted filter visualization: ${input.filterType} = ${input.filterValue}`);
-      } catch (error) {
+        });      } catch (error) {
         console.error("Error emitting filter visualization:", error);
         return { error: true, message: `Failed to emit filter visualization: ${error}` };
       }
@@ -1106,9 +1060,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const userId = input?._userId ?? null;
-      console.log('🏛️ DEBUG: loadTiles action handler called');
-      console.log('🔍 DEBUG: Input params:', JSON.stringify(input, null, 2));
-
       // Sofia tileset configuration - hardcoded for simplicity
       const SOFIA_TILESET = {
         id: SOFIA_TILESET_ID,
@@ -1116,9 +1067,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         name: 'Sofia Buildings',
         show: input.show !== undefined ? Boolean(input.show) : true
       };
-
-      console.log('🔍 DEBUG: Sofia tileset config:', JSON.stringify(SOFIA_TILESET, null, 2));
-
       // Prepare tileset data
       const tilesetData = {
         action: 'add',
@@ -1129,18 +1077,10 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         show: SOFIA_TILESET.show,
         timestamp: new Date().toISOString()
       };
-
-      console.log('🔍 DEBUG: Tileset data to emit:', JSON.stringify(tilesetData, null, 2));
-
       // Emit event for clients to load the tileset
-      try {
-        console.log('🔍 DEBUG: About to emit tilesetChanged event...');
-        const emitStart = Date.now();
+      try {        const emitStart = Date.now();
         await emitEvent('tilesetChanged', tilesetData);
-        const emitTime = Date.now() - emitStart;
-        console.log(`✅ DEBUG: Emitted tilesetChanged event in ${emitTime}ms`);
-        console.log(`✅ Emitted tilesetChanged event for Sofia buildings`);
-      } catch (error) {
+        const emitTime = Date.now() - emitStart;      } catch (error) {
         console.error("❌ Error emitting tilesetChanged event:", error);
         console.error("🔍 DEBUG: Emit error type:", typeof error);
         console.error("🔍 DEBUG: Emit error message:", error instanceof Error ? error.message : String(error));
@@ -1172,8 +1112,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       if (params && typeof params.value === 'function') removeInput = await params.value();
       else if (params) removeInput = params;
       const userId = removeInput?._userId ?? null;
-      console.log('🗑️ Removing Sofia 3D building tiles...');
-
       // Emit event for clients to remove the tileset
       try {
         await emitEvent('tilesetChanged', {
@@ -1181,9 +1119,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           userId,
           id: SOFIA_TILESET_ID,
           timestamp: new Date().toISOString()
-        });
-        console.log(`✅ Emitted tilesetChanged event to remove Sofia buildings`);
-      } catch (error) {
+        });      } catch (error) {
         console.error("Error emitting tileset remove event:", error);
         return { error: true, message: `Failed to emit tileset removal event: ${error}` };
       }
@@ -1232,9 +1168,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
     if (inFlightAnimation && now < flightAnimationEndTime) {
       // During animation, only emit if it's been at least 1 second since last emission
       if (timeSinceLastEmit < 1000) {
-        // Skip this update during animation
-        console.log('⏭️ Skipping camera update during animation (debounced)');
-        latestCameraData = null;
+        // Skip this update during animation        latestCameraData = null;
         return;
       }
     } else if (timeSinceLastEmit < 100) {
@@ -1244,9 +1178,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       setTimeout(async () => {
         if (latestCameraData) {
           try {
-            await emitEvent('mapView', latestCameraData);
-            console.log('✅ Forwarded camera state as mapView event (debounced)');
-          } catch (err: any) {
+            await emitEvent('mapView', latestCameraData);          } catch (err: any) {
             console.warn('⚠️ Could not forward camera state as mapView event:', err.message || String(err));
           }
         }
@@ -1260,9 +1192,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
     // Otherwise emit immediately
     try {
       if (latestCameraData) {
-        await emitEvent('mapView', latestCameraData);
-        console.log('✅ Forwarded camera state as mapView event (immediate)');
-      }
+        await emitEvent('mapView', latestCameraData);      }
     } catch (err: any) {
       console.warn('⚠️ Could not forward camera state as mapView event:', err.message || String(err));
     }
@@ -1273,8 +1203,6 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
   thing.setPropertyWriteHandler('cameraState', async (value: any) => {
     try {
       const cameraData = typeof value.value === 'function' ? await value.value() : value;
-      console.log('📡 Browser wrote camera state:', cameraData);
-
       // Store the latest camera data and trigger the debounced emission
       latestCameraData = cameraData;
       debouncedEmitMapViewEvent().catch(err => {
@@ -1288,17 +1216,11 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
   thing.setPropertyWriteHandler('selectedBuildingState', async (value: any) => {
     try {
       const buildingData = typeof value.value === 'function' ? await value.value() : value;
-      console.log('🏢 Browser wrote building selection:', buildingData);
-
       // Emit as WoT event so LLM client can receive it
-      await emitEvent('buildingSelected', buildingData);
-      console.log('✅ Emitted buildingSelected event');
-    } catch (error: any) {
+      await emitEvent('buildingSelected', buildingData);    } catch (error: any) {
       console.error('Error handling building selection write:', error.message || String(error));
     }
   });
 
-  await thing.expose();
-  console.log(`✅ City Model Thing exposed as "${TITLE}"`);
-  return thing;
+  await thing.expose();  return thing;
 }

@@ -358,7 +358,5 @@ export async function exposeApiThing(WoT: any): Promise<any> {
     return { message: 'Use getWeather action to get weather data' };
   });
 
-  await thing.expose();
-  console.log(`✅ API Thing exposed as "${TITLE}"`);
-  return thing;
+  await thing.expose();  return thing;
 }

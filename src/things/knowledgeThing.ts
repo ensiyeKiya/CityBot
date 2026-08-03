@@ -42,9 +42,6 @@ export async function exposeKnowledgeThing(WoT: any): Promise<any> {
 
       if (!Number.isFinite(pageid)) return { error: true, message: 'pageid is required' };
       if (!query) return { error: true, message: 'query is required for semantic search' };
-
-      console.log(`🔍 Wiki RAG search: pageid=${pageid}, query="${query}"`);
-
       // Embed ONLY the query and retrieve pre-indexed chunks from Qdrant
       const hits = await searchWikiChunks(pageid, query, 5);
 
@@ -56,15 +53,11 @@ export async function exposeKnowledgeThing(WoT: any): Promise<any> {
       }
 
       const condensedArticle = hits
-        .map((hit, idx) => {
-          console.log(`  ${idx + 1}. Relevance: ${Math.round(hit.score * 100)}% - "${hit.text.substring(0, 80)}..."`);
-          return hit.text;
+        .map((hit, idx) => {          return hit.text;
         })
         .join('\n\n');
 
       const articleChars = hits[0].articleChars || condensedArticle.length;
-      console.log(`✅ Retrieved ${hits.length}/${hits[0].totalChunks} chunks (${condensedArticle.length}/${articleChars} chars)`);
-
       return {
         success: true,
         pageid,
@@ -84,7 +77,5 @@ export async function exposeKnowledgeThing(WoT: any): Promise<any> {
     }
   });
 
-  await thing.expose();
-  console.log(`✅ Knowledge Thing exposed as "${TITLE}"`);
-  return thing;
+  await thing.expose();  return thing;
 }

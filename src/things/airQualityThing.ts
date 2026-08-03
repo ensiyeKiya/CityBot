@@ -187,9 +187,6 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       } else {
         input = params || {};
       }
-
-      console.log('🌫️ Starting pollution replay:', input);
-
       const userId = input?._userId ?? null;
       const startDate = input.startDate;
       if (!startDate) {
@@ -211,9 +208,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
             message: `No pollution data found for city "${cityName}". Available cities: ${available.join(', ')}`
           };
         }
-        polygonId = resolved.polygonId;
-        console.log(`🏙️ Resolved city "${cityName}" to polygon_id ${polygonId} (${resolved.name})`);
-      }
+        polygonId = resolved.polygonId;      }
 
       const [replayData, gridPoints] = await Promise.all([
         fetchPollutionReplayData({ startDate, hours, polygonId, parameter }),
@@ -246,9 +241,6 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         intervalMs,
         timestamp: new Date().toISOString(),
       });
-
-      console.log(`✅ Pollution replay emitted: ${replayData.hoursReturned} hours, ${replayData.gridPointCount} grid points`);
-
       return {
         success: true,
         hoursReturned: replayData.hoursReturned,
@@ -274,9 +266,6 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       } else {
         input = params || {};
       }
-
-      console.log('🔮 Starting prediction replay:', input);
-
       const userId = input?._userId ?? null;
       const intervalMs = input.intervalMs || 1000;
       const model = input.model;
@@ -293,9 +282,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
             message: `No prediction data found for city "${cityName}". Available cities: ${available.join(', ')}`
           };
         }
-        polygonId = resolved.polygonId;
-        console.log(`🏙️ Resolved city "${cityName}" to polygon_id ${polygonId} (${resolved.name})`);
-      }
+        polygonId = resolved.polygonId;      }
 
       const [predictionData, gridPoints] = await Promise.all([
         fetchPredictionReplayData({ polygonId, model, hours }),
@@ -328,9 +315,6 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         intervalMs,
         timestamp: new Date().toISOString(),
       });
-
-      console.log(`✅ Prediction replay emitted: ${predictionData.hoursReturned} hours, ${predictionData.gridPointCount} grid points, model: ${predictionData.model}`);
-
       return {
         success: true,
         model: predictionData.model,
@@ -355,16 +339,11 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       if (params && typeof params.value === 'function') input = await params.value();
       else if (params) input = params;
       const userId = input?._userId ?? null;
-      console.log('🧹 Clearing pollution/prediction clouds from map');
-
       await emitEvent('pollutionReplay', {
         action: 'stop',
         userId,
         timestamp: new Date().toISOString(),
-      });
-
-      console.log('✅ Emitted pollutionReplay stop event');
-      return { success: true, message: 'Pollution clouds cleared from the map.' };
+      });      return { success: true, message: 'Pollution clouds cleared from the map.' };
     } catch (error) {
       console.error("❌ Error in clearPollutionClouds handler:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -374,7 +353,5 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
     }
   });
 
-  await thing.expose();
-  console.log(`✅ AirQuality Thing exposed as "${TITLE}"`);
-  return thing;
+  await thing.expose();  return thing;
 }

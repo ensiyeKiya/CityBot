@@ -385,10 +385,7 @@ export async function loadAirQualitySensors(
     sensorEntities.length = 0;
 
     geojson.features.forEach((feature) => {
-      const valueData = feature.properties[param];
-
-      console.log("Sensor:", feature.properties.object);
-      console.log("Value data:", valueData); // {max: 22, min: 6.1, avg: 14.49} or null
+      const valueData = feature.properties[param]; // {max: 22, min: 6.1, avg: 14.49} or null
 
       let displayValue = null;
 
@@ -398,9 +395,6 @@ export async function loadAirQualitySensors(
       } else if (isToday) {
         displayValue = valueData;
       }
-
-      console.log("Display value:", displayValue);
-
       const color = getSensorColor(param, displayValue);
 
       const icon = createSensorIcon(

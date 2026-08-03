@@ -20,9 +20,7 @@
     // Ensure WoT library loads properly
     if (typeof window.WoT === 'undefined') {
       console.error('Failed to load WoT library from CDN');
-    } else {
-      console.log('WoT library loaded successfully');
-    }
+    } else {    }
 
     // Configuration will be injected by the server
     window.APP_CONFIG = window.APP_CONFIG || {
@@ -41,9 +39,7 @@
       ION_ACCESS_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5MjI4ZGM3ZS01ZTM1LTQyMjQtYjhlYi1jNjg3ZGVlMjY1OGEiLCJpZCI6MjkzNDQyLCJpYXQiOjE3NDQ0NjgyMDN9.qw_8EL_Qt0l_TX8ffQzUh8VBIIJWQImN_ozOXaFXp7E'
     };
 
-    const config = window.APP_CONFIG;
-    console.log('🌐 Using server configuration:', config);
-  </script>
+    const config = window.APP_CONFIG;  </script>
 
   <style>
     :root {
@@ -1272,14 +1268,10 @@
 
     // Initialize Cesium asynchronously with timeout handling
     async function initCesium() {
-      try {
-        console.log('🌍 Starting Cesium initialization...');
-        
+      try {        
         // Create terrain provider with timeout handling
         let terrainProvider;
-        try {
-          console.log('🏔️ Loading terrain resource from Ion...');
-          const terrainResource = await Promise.race([
+        try {          const terrainResource = await Promise.race([
             Cesium.IonResource.fromAssetId(2564867, {
               accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNWUzZmI0ZS02NDcxLTRlNjktYTcyYi00OWZlNTA4ZmViMTAiLCJpZCI6NDY4MjksImlhdCI6MTYxNjYwMTM4Nn0.3KOIXUjF4QpChsVKmW9pNy5WdE6qi3C61jBJc9VJGIQ"
             }),
@@ -1291,10 +1283,7 @@
               requestVertexNormals: true,
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Terrain provider timeout')), 10000))
-          ]);
-          
-          console.log('✅ Terrain provider loaded successfully');
-        } catch (error) {
+          ]);        } catch (error) {
           console.warn('⚠️ Failed to load Ion terrain, using default terrain:', error.message);
           // Fallback to default terrain
           terrainProvider = new Cesium.EllipsoidTerrainProvider();
@@ -1318,15 +1307,11 @@
         });
 
         performance.mark('viewer-start');
-        console.log('✅ Cesium viewer created successfully');
-
         // Ensure atmosphere is rendered so the night‑side of Earth is never completely black
         window.viewer.scene.skyAtmosphere = new Cesium.SkyAtmosphere();
 
         // Add Photorealistic 3D Tiles for realistic 3D buildings and terrain with timeout
-        try {
-          console.log('🏢 Loading Google Photorealistic 3D Tiles...');
-          window.googleTileset = await Promise.race([
+        try {          window.googleTileset = await Promise.race([
             Cesium.Cesium3DTileset.fromIonAssetId(2275207, {
               enableDebugWireframe: false
             }),
@@ -1334,9 +1319,7 @@
           ]);
           
           window.googleTileset.id = 'google-photorealistic-tileset';
-          window.viewer.scene.primitives.add(window.googleTileset);
-          console.log('✅ Google Photorealistic 3D Tiles loaded successfully');
-        } catch (error) {
+          window.viewer.scene.primitives.add(window.googleTileset);        } catch (error) {
           console.warn(`⚠️ Error loading Photorealistic 3D Tiles tileset: ${error.message}`);
           window.googleTileset = null;
         }
@@ -1371,9 +1354,7 @@
           const picked = window.viewer.scene.pick(movement.position);
           
           // Check if we clicked on a 3D tile feature (building)
-        if (picked && picked instanceof Cesium.Cesium3DTileFeature) {
-          console.log('🏢 Building clicked:', picked);
-          
+        if (picked && picked instanceof Cesium.Cesium3DTileFeature) {          
           // Hide InfoBox for buildings
           window.viewer.selectedEntity = undefined;
           
@@ -1405,10 +1386,7 @@
                 walk_access_index: props.walk_access_index,
                 sunhrs_int_avg: props.sunhrs_int_avg,
                 timestamp: new Date().toISOString()
-              };
-
-              console.log('🏢 Building data (before cleanup):', buildingData);
-              
+              };              
               // Remove undefined, null, and NaN values to satisfy WoT schema validation
               Object.keys(buildingData).forEach(key => {
                 const value = buildingData[key];
@@ -1428,19 +1406,12 @@
                 
                 // If coordinates object is empty after cleanup, remove it entirely
                 if (Object.keys(buildingData.coordinates).length === 0) {
-                  delete buildingData.coordinates;
-                  console.log('⚠️ Building has no valid coordinates - removed coordinates field');
-                }
+                  delete buildingData.coordinates;                }
               }
-              
-              console.log('🏢 Building data (after cleanup):', buildingData);
-
               window.llmSelectedBuilding = withUserId({ ...buildingData });
               
               window.thing.writeProperty('selectedBuildingState', withUserId(buildingData))
-                .then(() => {
-                  console.log('✅ Wrote building selection via WoT property:', buildingData);
-                })
+                .then(() => {                })
                 .catch(err => {
                   console.error('❌ Failed to write building selection:', err);
                 });
@@ -1450,9 +1421,7 @@
             console.error('❌ Failed to report building selection:', err);
           }
         } else if (picked && picked.id && picked.id instanceof Cesium.Entity) {
-          // Check if we clicked on an entity (sensor)
-          console.log('📍 Sensor clicked:', picked.id);
-          
+          // Check if we clicked on an entity (sensor)          
           // Show InfoBox for sensors by selecting the entity
           window.viewer.selectedEntity = picked.id;
         } else {
@@ -1462,17 +1431,13 @@
           // Reset building color and close building info panel
           if (window.selectedBuildingFeature) {
             window.selectedBuildingFeature.color = Cesium.Color.WHITE;
-            window.selectedBuildingFeature = null;
-            console.log('🔄 Reset building color on deselect');
-          }
+            window.selectedBuildingFeature = null;          }
           
           // Hide building info panel if visible
           const buildingInfoPanel = document.getElementById('buildingInfoPanel');
           if (buildingInfoPanel && buildingInfoPanel.style.display === 'flex') {
             buildingInfoPanel.style.display = 'none';
-            window.selectedBuilding = null;
-            console.log('🏢 Building info panel closed on deselect');
-            
+            window.selectedBuilding = null;            
             // Notify server that building has been deselected
             if (window.thing) {
               window.llmSelectedBuilding = withUserId({
@@ -1487,19 +1452,13 @@
                 sunhrs_int_avg: null,
                 timestamp: new Date().toISOString()
               });
-              window.thing.writeProperty('selectedBuildingState', window.llmSelectedBuilding).then(() => {
-                console.log('✅ Sent building deselection to server');
-              }).catch(err => {
+              window.thing.writeProperty('selectedBuildingState', window.llmSelectedBuilding).then(() => {              }).catch(err => {
                 console.error('❌ Failed to send building deselection:', err);
               });
             }
           }
         }
-        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-        
-        console.log('✅ Building click handler installed');
-        console.log('✅ Cesium initialization completed successfully');
-        
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);        
       } catch (error) {
         console.error('❌ Critical error during Cesium initialization:', error);
         throw error;
@@ -1555,10 +1514,7 @@
     }
     
     // Function to apply visualization styles from server-provided definition
-    window.applyVisualizationStyle = function(styleDefinition, styleName) {
-      console.log(`🎨 Applying visualization style: ${styleName}`);
-      console.log(`🔍 Style definition received:`, JSON.stringify(styleDefinition, null, 2));
-      
+    window.applyVisualizationStyle = function(styleDefinition, styleName) {      
       if (!window.sofiaTileset) {
         console.error('❌ Sofia tileset not loaded yet');
         return;
@@ -1570,12 +1526,8 @@
       }
       
       try {
-        // Create Cesium 3D tile style from server-provided definition
-        console.log(`🔧 Creating Cesium3DTileStyle with definition:`, styleDefinition);
-        const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
-        window.sofiaTileset.style = cesiumStyle;
-        console.log(`✅ Applied ${styleName} style to Sofia tileset`);
-      } catch (error) {
+        // Create Cesium 3D tile style from server-provided definition        const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
+        window.sofiaTileset.style = cesiumStyle;      } catch (error) {
         console.error(`❌ Failed to apply style ${styleName}:`, error);
         console.error(`❌ Error details:`, {
           message: error.message,
@@ -1586,12 +1538,8 @@
     };
     
     // Define emitCameraState function to use WoT property instead of MQTT
-    window.emitCameraState = async () => {
-      console.debug('📤 emitCameraState() called');
-      // Don't emit if thing is not yet connected
-      if (!window.thing) {
-        console.log('⏳ Thing not yet connected, skipping camera state emission');
-        return;
+    window.emitCameraState = async () => {      // Don't emit if thing is not yet connected
+      if (!window.thing) {        return;
       }
       
       const position = window.viewer.camera.positionCartographic;
@@ -1631,10 +1579,7 @@
               roll: currentState.roll
             },
             time: currentState.timestamp
-          }));
-          
-          console.log('📡 Camera state updated via WoT property:', currentState);
-          window.lastCameraState = currentState;
+          }));          window.lastCameraState = currentState;
           
           // Reset flag after a longer delay to allow the event to be processed
           setTimeout(() => {
@@ -1649,20 +1594,14 @@
 
     // Subscribe to WoT events instead of using MQTT
     window.subscribeToWoTEvents = async function() {
-      if (!window.thing) {
-        console.log('Thing not connected yet, cannot subscribe to events');
-        return;
+      if (!window.thing) {        return;
       }
       
       try {
-        // All events now handled via MQTT - no WoT subscriptions needed
-        console.log('🔧 Setting up MQTT event handlers...');
-        
+        // All events now handled via MQTT - no WoT subscriptions needed        
         // Define message handlers for MQTT
         window.handleConversationStreamMessage = async (payload, transport) => {
-          if (!payload) {
-            console.log('⚠️ DEBUG: Empty payload received, skipping');
-            return;
+          if (!payload) {            return;
           }
 
           // Track message sequence for loss detection
@@ -1697,15 +1636,11 @@
           }
           
           // Allow auto-generated building analysis through even if it doesn't match activeStreamRequestId
-          if (payload.requestId !== window.activeStreamRequestId && !isAutoBuildingAnalysis) {
-            console.log('⏭️ Skipping message with non-matching requestId:', payload.requestId);
-            return;
+          if (payload.requestId !== window.activeStreamRequestId && !isAutoBuildingAnalysis) {            return;
           }
           
           // If this is auto-building analysis, switch to this requestId
-          if (isAutoBuildingAnalysis && payload.requestId !== window.activeStreamRequestId) {
-            console.log('🏢 Switching to auto-building analysis stream:', payload.requestId);
-            window.activeStreamRequestId = payload.requestId;
+          if (isAutoBuildingAnalysis && payload.requestId !== window.activeStreamRequestId) {            window.activeStreamRequestId = payload.requestId;
             // Reset stream state for new auto-analysis
             window.streamMessageContentEl = null;
             window.streamAccumulatedText = '';
@@ -1806,9 +1741,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
             
             // Handle TTS for voice mode if needed
-            if (window.shouldDoTTSAfterStream && payload.metadata?.response) {
-              console.log('🔈 Starting TTS for voice mode response');
-              window.shouldDoTTSAfterStream = false; // Reset flag
+            if (window.shouldDoTTSAfterStream && payload.metadata?.response) {              window.shouldDoTTSAfterStream = false; // Reset flag
               
               try {
                 if (!isqamode && currentAudio) {
@@ -1816,16 +1749,12 @@
                 }
                 
                 // Sanitize text before TTS to remove markdown and emojis
-                const sanitizedText = sanitizeTextForTTS(payload.metadata.response);
-                console.log('🔈 Original text length:', payload.metadata.response.length, 'Sanitized:', sanitizedText.length);
-                
+                const sanitizedText = sanitizeTextForTTS(payload.metadata.response);                
                 const audio = await getSpeech(sanitizedText);
                 const audioURL = URL.createObjectURL(audio);
                 currentAudio = new Audio(audioURL);
                 
-                currentAudio.onended = () => {
-                  console.log("🔈 Bot finished speaking");
-                  currentAudio = null;
+                currentAudio.onended = () => {                  currentAudio = null;
                   // Handle restart or stop before unlocking UI
                   if (isqamode) {
                     stopListeningMode();
@@ -1843,9 +1772,7 @@
                 };
                 
                 await currentAudio.play();
-                state = 'SPEAKING';
-                console.log("🔈 Bot started speaking");
-              } catch (err) {
+                state = 'SPEAKING';              } catch (err) {
                 console.error("🔇 Audio playback error:", err);
                 unlockUI();
               }
@@ -1856,35 +1783,25 @@
           }
         };
 
-        window.handleTilesetChangedMessage = (payload, transport) => {
-          console.log(`🔍 DEBUG: Handling tilesetChanged via ${transport}:`, payload);
-          
+        window.handleTilesetChangedMessage = (payload, transport) => {          
           if (!payload) {
-            console.error('❌ DEBUG: payload is null/undefined');
+            console.error('payload is null/undefined');
             return;
           }
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
 
           try {
-            if (payload.action === 'remove') {
-              console.log('🗑️ DEBUG: Removing tileset with id:', payload.id);
-              const primitives = window.viewer.scene.primitives;
+            if (payload.action === 'remove') {              const primitives = window.viewer.scene.primitives;
               for (let i = primitives.length - 1; i >= 0; i--) {
                 const primitive = primitives.get(i);
                 if (primitive.id === payload.id) {
                   primitives.remove(primitive);
-                  // window.addMessage(`Removed tileset: ${payload.id}`);
-                  console.log(`✅ Removed tileset: ${payload.id}`);
-                  
+                  // window.addMessage(`Removed tileset: ${payload.id}`);                  
                   // Clear Sofia tileset reference and restore Google tileset
                   if (payload.id === 'sofia-buildings-tileset') {
-                    window.sofiaTileset = null;
-                    console.log('✅ Cleared Sofia tileset reference');
-                    
+                    window.sofiaTileset = null;                    
                     if (window.googleTileset) {
-                      window.googleTileset.show = true;
-                      console.log('✅ Restored Google Photorealistic 3D Tiles');
-                      // window.addMessage('Restored Google 3D Tiles');
+                      window.googleTileset.show = true;                      // window.addMessage('Restored Google 3D Tiles');
                     }
                   }
                   break;
@@ -1894,14 +1811,10 @@
               
               // Hide Google tileset when loading Sofia tiles
               if (payload.id === 'sofia-buildings-tileset' && window.googleTileset) {
-                window.googleTileset.show = false;
-                console.log('🔍 Hiding Google Photorealistic 3D Tiles to show Sofia tiles');
-              }
+                window.googleTileset.show = false;              }
               
               (async () => {
-                try {
-                  console.log(`🔍 DEBUG: Calling Cesium.Cesium3DTileset.fromUrl...`);
-                  const tilesetLoadStart = performance.now();
+                try {                  const tilesetLoadStart = performance.now();
                   
                   const tileset = await Cesium.Cesium3DTileset.fromUrl(payload.url, {
                     dynamicScreenSpaceError: false,
@@ -1911,20 +1824,13 @@
                   const tilesetLoadTime = performance.now() - tilesetLoadStart;
                   
                   tileset.id = payload.id;
-                  tileset.show = payload.show !== undefined ? payload.show : true;
-                  
-                  console.log(`🔍 DEBUG: Adding tileset to scene.primitives...`);
-                  window.viewer.scene.primitives.add(tileset);
+                  tileset.show = payload.show !== undefined ? payload.show : true;                  window.viewer.scene.primitives.add(tileset);
                   
                   // Store Sofia tileset reference for visualization styles
                   if (payload.id === 'sofia-buildings-tileset') {
-                    window.sofiaTileset = tileset;
-                    console.log('✅ Stored Sofia tileset reference for visualization styles');
-                    
+                    window.sofiaTileset = tileset;                    
                     // Apply any pending visualization style
-                    if (window.pendingVisualizationStyle) {
-                      console.log(`🎨 Applying pending style: ${window.pendingVisualizationStyle.styleName}`);
-                      window.applyVisualizationStyle(
+                    if (window.pendingVisualizationStyle) {                      window.applyVisualizationStyle(
                         window.pendingVisualizationStyle.styleDefinition, 
                         window.pendingVisualizationStyle.styleName
                       );
@@ -1933,11 +1839,7 @@
                   }
                   
                   // window.addMessage(`Loaded 3D tileset: ${payload.name || payload.id}`);
-                  console.log(`✅ Loaded tileset: ${payload.name || payload.id}`);
-
-                  await window.viewer.flyTo(tileset);
-                  console.log(`✅ Flew to tileset: ${payload.name || payload.id}`);
-                  
+                  await window.viewer.flyTo(tileset);                  
                 } catch (tilesetError) {
                   console.error('❌ Failed to load tileset:', tilesetError);
                   // window.addMessage(`Error loading tileset: ${tilesetError.message}`);
@@ -1950,45 +1852,25 @@
           }
         };
 
-        window.handleSTTProgressMessage = (payload, transport) => {
-          console.log(`🔍 DEBUG: Handling sttProgress via ${transport}:`, payload);
-          
+        window.handleSTTProgressMessage = (payload, transport) => {          
           // Handle pending STT requests
-          if (window.pendingSTTRequests && payload.requestId && window.pendingSTTRequests[payload.requestId]) {
-            console.log(`🔍 DEBUG: Found handler for requestId: ${payload.requestId}`);
-            const handler = window.pendingSTTRequests[payload.requestId];
+          if (window.pendingSTTRequests && payload.requestId && window.pendingSTTRequests[payload.requestId]) {            const handler = window.pendingSTTRequests[payload.requestId];
             
-            if (payload.status === 'completed') {
-              console.log(`🔍 DEBUG: Calling resolve for completed STT`);
-              handler.resolve(payload.text);
-            } else if (payload.status === 'error') {
-              console.log(`🔍 DEBUG: Calling reject for error STT`);
-              handler.reject(payload.error);
-            } else {
-              console.log(`🔍 DEBUG: STT status is '${payload.status}', continuing to wait`);
-            }
-          } else {
-            console.log(`🔍 DEBUG: No handler found for requestId: ${payload.requestId}`);
-          }
+            if (payload.status === 'completed') {              handler.resolve(payload.text);
+            } else if (payload.status === 'error') {              handler.reject(payload.error);
+            } else {            }
+          } else {          }
         };
 
-        window.handleMapViewMessage = (payload, transport) => {
-          console.log(`🗺️ DEBUG: Handling mapView via ${transport}:`, payload);
-          
+        window.handleMapViewMessage = (payload, transport) => {          
           if (!payload) {
-            console.error('❌ DEBUG: Invalid mapView payload');
+            console.error('Invalid mapView payload');
             return;
           }
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
 
           const now = Date.now();
-          console.groupCollapsed('🗺️ mapView event received via MQTT');
-          console.log('Raw payload:', payload);
-          console.log('Flags → isOwnCameraUpdate:', window.isOwnCameraUpdate, 'lastOwnUpdateAge(ms):', now - window.lastOwnUpdateTime);
-
           if (window.isOwnCameraUpdate || (now - window.lastOwnUpdateTime) < 500) {
-            console.warn('⏭️ Skipping own camera update due to debounce/self-flag.');
-            console.groupEnd();
             return;
           }
 
@@ -2000,23 +1882,14 @@
           const head = payload.camera?.heading ?? 0;
           const pit = payload.camera?.pitch ?? -90;
           const rol = payload.camera?.roll ?? 0;
-
-          console.log('Parsed values →', { lon, lat, hgt, heading: head, pitch: pit, roll: rol });
-          console.log('Queue length (before push):', window.queue.length, 'flying:', window.flying);
-
           window.queue.push(payload);
-          console.log('Queue length (after push):', window.queue.length);
-
-          console.groupEnd();
           window.nextFly();
         };
 
         window.handleEntityAddedMessage = (payload, transport) => {
-          const logId = Math.random().toString(36).substr(2, 9);
-          console.log(`🎯 DEBUG: Handling entityAdded via ${transport} [${logId}]:`, payload);
-          
+          const logId = Math.random().toString(36).substr(2, 9);          
           if (!payload) {
-            console.error('❌ DEBUG: Invalid entityAdded payload');
+            console.error('Invalid entityAdded payload');
             return;
           }
           
@@ -2105,10 +1978,7 @@
           }
         };
 
-        window.handleVisualizationStyleMessage = (payload, transport) => {
-          console.log(`🎨 Handling visualizationStyleChanged via ${transport}:`, payload.styleName || payload.style);
-          console.log(`🔍 Full payload received:`, JSON.stringify(payload, null, 2));
-          
+        window.handleVisualizationStyleMessage = (payload, transport) => {          
           if (!payload || !payload.style || !payload.styleDefinition) {
             console.error('❌ Invalid visualization style payload - missing style or definition');
             console.error('❌ Payload structure:', payload);
@@ -2125,9 +1995,7 @@
               window.pendingVisualizationStyle = {
                 styleDefinition: payload.styleDefinition,
                 styleName: payload.styleName || payload.style
-              };
-              console.log(`⏳ Stored pending visualization style: ${payload.styleName || payload.style}`);
-            }
+              };            }
           } catch (error) {
             console.error(`❌ Error applying visualization style:`, error);
           }
@@ -2173,20 +2041,14 @@
         };
 
         // Building click handler - shows building info table and highlights the building
-        window.handleBuildingClick = async (feature) => {
-          console.log('🏢 Building clicked, showing building info table...');
-          
+        window.handleBuildingClick = async (feature) => {          
           try {
             // Reset previous building's color if any
             if (window.selectedBuildingFeature) {
-              window.selectedBuildingFeature.color = Cesium.Color.WHITE;
-              console.log('🔄 Reset previous building color');
-            }
+              window.selectedBuildingFeature.color = Cesium.Color.WHITE;            }
             
             // Highlight the newly selected building with a bright cyan color
-            feature.color = Cesium.Color.CYAN.withAlpha(0.8);
-            console.log('✨ Highlighted selected building');
-            
+            feature.color = Cesium.Color.CYAN.withAlpha(0.8);            
             // Store reference to the selected feature
             window.selectedBuildingFeature = feature;
             
@@ -2197,10 +2059,7 @@
             for (let i = 0; i < propertyIds.length; i++) {
               const propName = propertyIds[i];
               properties[propName] = feature.getProperty(propName);
-            }
-            
-            console.log('📊 Building properties:', properties);
-            
+            }            
             // Store the selected building
             window.selectedBuilding = {
               feature: feature,
@@ -2219,9 +2078,7 @@
             
             if (buildingInfoPanel && buildingInfoContent) {
               buildingInfoContent.innerHTML = window.createBuildingInfoTable(feature, buildingName);
-              buildingInfoPanel.style.display = 'flex';
-              console.log('✅ Building info table displayed');
-            } else {
+              buildingInfoPanel.style.display = 'flex';            } else {
               console.error('❌ Building info panel elements not found');
             }
             
@@ -2236,9 +2093,7 @@
         window.currentSensorOperator = null;
         window.currentSensorParameter = null;
 
-        window.handleSensorsChangedMessage = async (payload, transport) => {
-          console.log(`📍 Handling sensorsChanged via ${transport}:`, payload);
-          
+        window.handleSensorsChangedMessage = async (payload, transport) => {          
           if (!payload || !payload.action) {
             console.error('❌ Invalid sensors payload');
             return;
@@ -2246,20 +2101,13 @@
           
           try {
             if (payload.action === 'remove') {
-              // Remove all sensor entities
-              console.log('🗑️ Removing all sensors...');
-              window.sensorEntities.forEach(entity => {
+              // Remove all sensor entities              window.sensorEntities.forEach(entity => {
                 window.viewer.entities.remove(entity);
               });
               window.sensorEntities = [];
-              window.currentSensorOperator = null;
-              console.log('✅ All sensors removed');
-              
+              window.currentSensorOperator = null;              
             } else if (payload.action === 'load') {
-              // Load sensors from backend data
-              console.log(`📍 Loading sensors: operator=${payload.operator}, parameter=${payload.parameter}`);
-              console.log(`📊 Received ${payload.sensors?.length || 0} sensors from backend`);
-              
+              // Load sensors from backend data              
               // Store current sensor state
               window.currentSensorOperator = payload.operator;
               window.currentSensorParameter = payload.parameter; // Don't default to PM10
@@ -2333,14 +2181,9 @@
                   
                   window.sensorEntities.push(entity);
                 });
-              }
-              
-              console.log(`✅ Created ${window.sensorEntities.length} sensor entities on map`);
-              
+              }              
             } else if (payload.action === 'filter') {
-              // Filter existing sensors
-              console.log(`🔍 Filtering sensors: ${payload.filterType} = ${payload.filterValue}`);
-              
+              // Filter existing sensors              
               window.sensorEntities.forEach(entity => {
                 let shouldShow = true;
                 
@@ -2376,16 +2219,12 @@
                   shouldShow = entityName.toLowerCase().includes(searchValue);
                   
                 } else if (payload.filterType === 'parameter') {
-                  // This would require reloading with different parameter
-                  console.log('⚠️ Parameter filtering requires reload');
-                }
+                  // This would require reloading with different parameter                }
                 
                 entity.show = shouldShow;
               });
               
-              const visibleCount = window.sensorEntities.filter(e => e.show).length;
-              console.log(`✅ Filtered sensors: ${visibleCount}/${window.sensorEntities.length} visible`);
-            }
+              const visibleCount = window.sensorEntities.filter(e => e.show).length;            }
             
           } catch (error) {
             console.error('❌ Error handling sensors:', error);
@@ -2418,8 +2257,6 @@
 
         window.handlePollutionReplayMessage = async (payload, transport) => {
           const replayType = payload?.isPrediction ? 'prediction' : 'historical';
-          console.log(`🌫️ Handling pollutionReplay (${replayType}) via ${transport}:`, payload?.action, 'hours:', payload?.hoursCount, payload?.model ? `model: ${payload.model}` : '');
-
           if (!payload || !payload.action) {
             console.error('❌ Invalid pollutionReplay payload');
             return;
@@ -2435,9 +2272,7 @@
               if (window.pollutionClouds && window.viewer.scene.primitives.contains(window.pollutionClouds)) {
                 window.viewer.scene.primitives.remove(window.pollutionClouds);
               }
-              window.pollutionClouds = null;
-              console.log('🛑 Pollution replay stopped');
-              return;
+              window.pollutionClouds = null;              return;
             }
 
             if (payload.action === 'start' && payload.gridPoints && payload.hours) {
@@ -2482,8 +2317,6 @@
 
               window.viewer.scene.primitives.add(clouds);
               window.pollutionClouds = clouds;
-              console.log(`☁️ Created ${payload.gridPoints.length} clouds for pollution replay`);
-
               // Animate through hours
               const replayParameter = payload.parameter || 'PM10';
               const hoursData = payload.hours;
@@ -2493,9 +2326,7 @@
               function paintFrame() {
                 if (frameIndex >= hoursData.length) {
                   clearInterval(window.pollutionReplayTimer);
-                  window.pollutionReplayTimer = null;
-                  console.log('✅ Pollution replay finished');
-                  return;
+                  window.pollutionReplayTimer = null;                  return;
                 }
 
                 const frame = hoursData[frameIndex];
@@ -2506,17 +2337,13 @@
                   clouds.get(i).color = getColorForPollution(values[i], replayParameter);
                 }
 
-                window.viewer.scene.requestRender();
-                console.log(`🌫️ Replay frame ${frameIndex + 1}/${hoursData.length}: ${frame.hour}`);
-                frameIndex++;
+                window.viewer.scene.requestRender();                frameIndex++;
               }
 
               // Paint first frame immediately, then start interval
               paintFrame();
               window.pollutionReplayTimer = setInterval(paintFrame, intervalMs);
-              const label = payload.isPrediction ? `Prediction replay (${payload.model || 'unknown model'})` : 'Pollution replay';
-              console.log(`🎬 ${label} started: ${hoursData.length} frames at ${intervalMs}ms interval`);
-            }
+              const label = payload.isPrediction ? `Prediction replay (${payload.model || 'unknown model'})` : 'Pollution replay';            }
 
           } catch (error) {
             console.error('❌ Error handling pollutionReplay:', error);
@@ -2804,15 +2631,9 @@
         }
         
         // Set up direct MQTT WebSocket connection for conversationStream
-        if (typeof mqtt !== 'undefined') {
-          console.log('🔍 DEBUG: Setting up direct MQTT WebSocket connection');
-          
+        if (typeof mqtt !== 'undefined') {          
           // MQTT over WebSocket needs /mqtt path - always use WSS through reverse proxy
-          const mqttUrl = `wss://${config.SERVER_NAME}/mqtt`;
-          
-          console.log(`🔍 DEBUG: Connecting to MQTT WebSocket at: ${mqttUrl}`);
-          console.log(`🔍 DEBUG: Using credentials - User: ${config.MQTT_USER}, Pass: ${config.MQTT_PASSWORD ? '[REDACTED]' : 'NOT SET'}`);
-          
+          const mqttUrl = `wss://${config.SERVER_NAME}/mqtt`;          
           try {
             const mqttClient = mqtt.connect(mqttUrl, {
               clientId: `citybot-browser-${Math.random().toString(36).substr(2, 9)}`,
@@ -2825,10 +2646,7 @@
               rejectUnauthorized: false
             });
             
-            mqttClient.on('connect', (connack) => {
-              console.log('✅ DEBUG: MQTT WebSocket connected successfully');
-              console.log('🔍 DEBUG: Connection acknowledgment:', connack);
-              
+            mqttClient.on('connect', (connack) => {              
               // Build per-user topic paths using the authenticated user's ID.
               // Each user receives their own dedicated event topics so that
               // commands from one user's LLM session never appear in another
@@ -2852,10 +2670,8 @@
               topics.forEach(topic => {
                 mqttClient.subscribe(topic, (err) => {
                   if (err) {
-                    console.error(`❌ DEBUG: Failed to subscribe to MQTT topic ${topic}:`, err);
-                  } else {
-                    console.log(`✅ DEBUG: Subscribed to MQTT topic: ${topic}`);
-                  }
+                    console.error(`Failed to subscribe to MQTT topic ${topic}:`, err);
+                  } else {                  }
                 });
               });
               
@@ -2866,10 +2682,8 @@
                 userAgent: navigator.userAgent
               }), { qos: 0 }, (err) => {
                 if (err) {
-                  console.error('❌ DEBUG: Failed to send heartbeat:', err);
-                } else {
-                  console.log('💓 DEBUG: Heartbeat sent successfully');
-                }
+                  console.error('Failed to send heartbeat:', err);
+                } else {                }
               });
             });
             
@@ -2896,13 +2710,13 @@
                 }
                 
               } catch (err) {
-                console.error('❌ DEBUG: Failed to process MQTT message:', err);
+                console.error('Failed to process MQTT message:', err);
               }
             });
             
             mqttClient.on('error', (err) => {
-              console.error('❌ DEBUG: MQTT WebSocket connection error:', err);
-              console.error('❌ DEBUG: Error details:', {
+              console.error('MQTT WebSocket connection error:', err);
+              console.error('Error details:', {
                 message: err.message,
                 code: err.code,
                 errno: err.errno,
@@ -2910,31 +2724,19 @@
               });
             });
             
-            mqttClient.on('disconnect', (packet) => {
-              console.log('⚠️ DEBUG: MQTT WebSocket disconnected');
-              console.log('🔍 DEBUG: Disconnect packet:', packet);
-            });
+            mqttClient.on('disconnect', (packet) => {            });
             
-            mqttClient.on('offline', () => {
-              console.log('📴 DEBUG: MQTT client is offline');
-            });
+            mqttClient.on('offline', () => {            });
             
-            mqttClient.on('reconnect', () => {
-              console.log('🔄 DEBUG: MQTT client is reconnecting');
-            });
+            mqttClient.on('reconnect', () => {            });
             
             // Store client globally for cleanup
             window.mqttClient = mqttClient;
             
           } catch (error) {
-            console.error('❌ DEBUG: Failed to setup MQTT WebSocket connection:', error);
+            console.error('Failed to setup MQTT WebSocket connection:', error);
           }
-        } else {
-          console.log('⚠️ DEBUG: MQTT.js library not available');
-        }
-
-        console.log(`📡 MQTT subscribed to per-user topics for userId=${window.currentUserId}: conversationStream, sttProgress, mapView, entityAdded, tilesetChanged, visualizationStyleChanged, sensorsChanged, pollutionReplay`);
-        
+        } else {        }        
       } catch (error) {
         console.error('Error setting up MQTT event handlers:', error);
       }
@@ -2946,9 +2748,7 @@
         // Reset the building color when closing the panel
         if (window.selectedBuildingFeature) {
           window.selectedBuildingFeature.color = Cesium.Color.WHITE;
-          window.selectedBuildingFeature = null;
-          console.log('🔄 Reset building color on panel close');
-        }
+          window.selectedBuildingFeature = null;        }
         
         // Clear the selected building reference
         window.selectedBuilding = null;
@@ -2967,24 +2767,18 @@
             sunhrs_int_avg: null,
             timestamp: new Date().toISOString()
           });
-          window.thing.writeProperty('selectedBuildingState', window.llmSelectedBuilding).then(() => {
-            console.log('✅ Sent building deselection to server (close button)');
-          }).catch(err => {
+          window.thing.writeProperty('selectedBuildingState', window.llmSelectedBuilding).then(() => {          }).catch(err => {
             console.error('❌ Failed to send building deselection:', err);
           });
         }
         
         window.selectedBuilding = null;
-        window.selectedBuildingFeature = null;
-        console.log('🏢 Building info panel closed');
-      });
+        window.selectedBuildingFeature = null;      });
     };
 
     /* ========================= 4. WoT Thing ========================= */
     async function connectThing () {
-      try {
-        console.log('🔗 Starting WoT Thing connection...');
-        const servient = new window.WoT.Core.Servient();
+      try {        const servient = new window.WoT.Core.Servient();
         servient.addCredentials({
           "urn:dev:wot:com:citymodel": {
             username: config.WOT_USERNAME,
@@ -3004,9 +2798,7 @@
         const userId = window.currentUserId;
         const citymodelUrl = userId != null
           ? `https://${config.SERVER_NAME}/api/wot/td/${userId}`
-          : `https://${config.SERVER_NAME}/citymodel`;
-        console.log('🔗 Connecting to citymodel at:', citymodelUrl, '(userId:', userId, ')');
-        
+          : `https://${config.SERVER_NAME}/citymodel`;        
         const td = await Promise.race([
           wot.requestThingDescription(citymodelUrl),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Thing description request timeout')), 15000))
@@ -3015,10 +2807,7 @@
         const thing = await Promise.race([
           wot.consume(td),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Thing consumption timeout')), 10000))
-        ]);
-        
-        console.log('✅ City Model Thing connected successfully');
-        return thing;
+        ]);        return thing;
       } catch (error) {
         console.error('❌ Failed to connect to WoT Thing:', error);
         throw error;
@@ -3026,9 +2815,7 @@
     }
 
     async function connectLLMThing () {
-      try {
-        console.log('🤖 Starting LLM Thing connection...');
-        const servient = new window.WoT.Core.Servient();
+      try {        const servient = new window.WoT.Core.Servient();
         
         // Add credentials for LLM service - same as main smartbot
         servient.addCredentials({
@@ -3054,9 +2841,7 @@
         ]);
         
         // Use dynamic configuration for the URL
-        const llmUrl = `https://${config.SERVER_NAME}/llm`; // No port - handled by reverse proxy
-        console.log('🔗 Connecting to LLM service at:', llmUrl);
-        
+        const llmUrl = `https://${config.SERVER_NAME}/llm`; // No port - handled by reverse proxy        
         const td = await Promise.race([
           wot.requestThingDescription(llmUrl),
           new Promise((_, reject) => setTimeout(() => reject(new Error('LLM Thing description request timeout')), 15000))
@@ -3065,10 +2850,7 @@
         const llmThing = await Promise.race([
           wot.consume(td),
           new Promise((_, reject) => setTimeout(() => reject(new Error('LLM Thing consumption timeout')), 10000))
-        ]);
-        
-        console.log('✅ LLM Thing connected successfully');
-        return llmThing;
+        ]);        return llmThing;
       } catch (error) {
         console.error('❌ Failed to connect to LLM Thing:', error);
         throw error;
@@ -3079,12 +2861,8 @@
     window.initWoT = async function() {
       try {
         // Connect to Thing
-        window.thing = await connectThing();
-        console.log('Connected to', window.thing.title);
-        
-        window.llmThing = await connectLLMThing();
-        console.log('Connected to LLM service:', window.llmThing.title);
-        
+        window.thing = await connectThing();        
+        window.llmThing = await connectLLMThing();        
         // Subscribe to WoT events
         const subscriptions = await window.subscribeToWoTEvents();
     
@@ -3097,33 +2875,21 @@
     }
     
     // Initialize everything when the page loads
-    window.addEventListener('load', async () => {
-      console.log('🚀 Window loaded, initializing application...');
-      
+    window.addEventListener('load', async () => {      
       try {
-        // First initialize Cesium with timeout
-        console.log('🌍 Initializing Cesium...');
-        await Promise.race([
+        // First initialize Cesium with timeout        await Promise.race([
           initCesium(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Cesium initialization timeout')), 30000))
-        ]);
-        console.log('✅ Cesium initialized successfully');
-        
+        ]);        
         // Make sure viewer is defined before proceeding
         if (!window.viewer) {
           throw new Error('Cesium viewer was not initialized properly');
         }
         
-        // Then initialize WoT connections with timeout
-        console.log('🔗 Initializing WoT connections...');
-        await Promise.race([
+        // Then initialize WoT connections with timeout        await Promise.race([
           window.initWoT(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('WoT initialization timeout')), 45000))
-        ]);
-        console.log('✅ WoT connections initialized successfully');
-        
-        console.log('🎉 Application initialization completed successfully!');
-        
+        ]);        
       } catch (err) {
         console.error('❌ Initialization error:', err);
         
@@ -3139,9 +2905,7 @@
           window.addMessage('❌ Initialization error: ' + errorMessage, false, true);
         }
         
-        // Try to continue with basic functionality even if initialization fails
-        console.log('🔄 Attempting to continue with limited functionality...');
-      }
+        // Try to continue with basic functionality even if initialization fails      }
     });
     
     /* ========================= 3. Chat helpers ======================== */
@@ -3319,17 +3083,13 @@
         e.stopPropagation(); // Prevent triggering drag
         
         isMinimized = true;
-        chatPanel.classList.add('minimized');
-        console.log('Chat panel minimized to microphone-only mode');
-      });
+        chatPanel.classList.add('minimized');      });
 
       maximizeBtn.addEventListener('click', (e) => {
         e.stopPropagation(); // Prevent triggering drag
         
         isMinimized = false;
-        chatPanel.classList.remove('minimized');
-        console.log('Chat panel maximized to full mode');
-      });
+        chatPanel.classList.remove('minimized');      });
     }
 
     // Initialize minimize functionality when DOM is ready
@@ -3396,9 +3156,7 @@
             autoGainControl: true,  // Automatically adjust microphone gain
             sampleRate: 48000       // Higher sample rate for better quality
           } 
-        });
-        console.log("🎙️ Microphone access granted with enhanced audio settings");
-        state = 'LISTENING';
+        });        state = 'LISTENING';
         audioCtx = new AudioContext();
         sourceNode = audioCtx.createMediaStreamSource(stream);
         
@@ -3427,11 +3185,7 @@
     
         mediaRecorder.onstart = () => {
           performanceMetrics.recordingStart = performance.now();
-          if(!interruptionMode){
-            console.log("⏺️ Recording started");
-          } else{
-            console.log("⏺️ Recording started after interuption");
-          }
+          if(!interruptionMode){          } else{          }
             initVAD();
         };
     
@@ -3455,13 +3209,8 @@
         preSpeechPadFrames: 20,          // Capture 20 frames (~600ms) BEFORE speech starts - prevents cutting off first words!
         minSpeechFrames: 3,              // Minimum frames to consider as speech (default: 3)
         submitUserSpeechOnPause: true,   // Auto-submit when pause detected
-        onSpeechStart: () => {
-          console.log("🎤 Speech started (VAD)");
-        },
-        onSpeechEnd: async (audioSegment) => {
-          console.log("🎤 Speech ended (VAD) → processing…");
-          console.log(`📊 VAD audio segment: ${audioSegment ? audioSegment.length : 0} samples`);
-          if (state === 'LISTENING') {
+        onSpeechStart: () => {        },
+        onSpeechEnd: async (audioSegment) => {          if (state === 'LISTENING') {
             stopRecordingAndProcess(true);
           }
         },
@@ -3472,11 +3221,7 @@
           const currentSpeachSilanceState = probs.isSpeech > probs.notSpeech ? "speech" : "silence";
 
           // Print only if state changed
-          if (currentSpeachSilanceState !== lastSpeachSilanceState) {
-            console.log(
-              `State change → ${currentSpeachSilanceState.toUpperCase()} (speech=${probs.isSpeech.toFixed(3)}, silence=${probs.notSpeech.toFixed(3)})`
-            );
-            lastSpeachSilanceState = currentSpeachSilanceState;
+          if (currentSpeachSilanceState !== lastSpeachSilanceState) {            lastSpeachSilanceState = currentSpeachSilanceState;
           }
         }
       });
@@ -3512,9 +3257,7 @@
           if (!wasSpeaking) {
             clearTimeout(inactivityTimeout);
             if (!inSpeechSession) {
-              speakingStart = now;
-              console.log("🎤 Voice activity started (RMS:", rms.toFixed(4), ")");
-            }
+              speakingStart = now;            }
             wasSpeaking = true;
             silenceStart = null;
             
@@ -3524,9 +3267,7 @@
               silenceTimer = null;
             }
             // Handle interruption IMMEDIATELY when voice is detected during bot speech
-            if (!isqamode && currentAudio) {
-              console.log("🛑 INTERRUPT: User started speaking");
-              interruptTTS();
+            if (!isqamode && currentAudio) {              interruptTTS();
             }
           }
     
@@ -3551,9 +3292,7 @@
           // and haven't set a timer yet
           if (inSpeechSession && silenceStart && !silenceTimer) {
             silenceTimer = setTimeout(() => {
-              if (state === 'LISTENING') {
-                console.log("🕒 Silence timeout reached - processing speech");
-                stopRecordingAndProcess(true);
+              if (state === 'LISTENING') {                stopRecordingAndProcess(true);
               }
             }, silenceDelay);
           }
@@ -3569,24 +3308,18 @@
     
     // === Stop + Process Recording ===
     function stopRecordingAndProcess(interruptionMode = false) {
-      if (state !== 'LISTENING') {
-        console.log("⚠️ stopRecordingAndProcess called but state is not LISTENING, ignoring");
-        unlockUI();
+      if (state !== 'LISTENING') {        unlockUI();
         return;
       }
 
       // Check if mediaRecorder is still active
-      if (!mediaRecorder || mediaRecorder.state !== 'recording') {
-        console.log("⚠️ mediaRecorder is not recording, ignoring stopRecordingAndProcess");
-        unlockUI();
+      if (!mediaRecorder || mediaRecorder.state !== 'recording') {        unlockUI();
         return;
       }
 
       if (myvad) {
         try {
-          myvad.pause();
-          console.log("🛑 VAD paused in stopRecordingAndProcess");
-        } catch (err) {
+          myvad.pause();        } catch (err) {
           console.error("⚠️ Error pausing VAD in stopRecordingAndProcess:", err);
         }
       }
@@ -3600,16 +3333,11 @@
       performanceMetrics.totalStart = performanceMetrics.recordingStart; // Total starts from recording
     
       // Calculate recording duration
-      const recordingDuration = performanceMetrics.recordingEnd - performanceMetrics.recordingStart;
-      
-      console.log("🛑 Silence detected — stopping recording");
-      logTiming('🎙️ Recording Duration', performanceMetrics.recordingStart, performanceMetrics.recordingEnd);
+      const recordingDuration = performanceMetrics.recordingEnd - performanceMetrics.recordingStart;      logTiming('🎙️ Recording Duration', performanceMetrics.recordingStart, performanceMetrics.recordingEnd);
     
       // Minimum recording duration check (500ms) - prevents accidental clicks
       const MIN_RECORDING_DURATION = 500; // milliseconds
-      if (recordingDuration < MIN_RECORDING_DURATION) {
-        console.log(`⚠️ Recording too short (${recordingDuration.toFixed(0)}ms < ${MIN_RECORDING_DURATION}ms) - ignoring`);
-        mediaRecorder.stop();
+      if (recordingDuration < MIN_RECORDING_DURATION) {        mediaRecorder.stop();
         state = 'IDLE';
         unlockUI();
         return;
@@ -3640,7 +3368,7 @@
           await handleUserTextStream(text);
         } catch (err) {
           console.error("🔥 Processing error:", err);
-          console.error("🔍 DEBUG: Processing error stack:", err.stack);
+          console.error(" Processing error stack:", err.stack);
           unlockUI();
         }
         
@@ -3711,17 +3439,13 @@
           currentAudio = new Audio(audioURL);
     
           currentAudio.onended = () => {
-            performanceMetrics.totalEnd = performance.now();
-            console.log("🔈 Bot finished speaking");
-            currentAudio = null;
+            performanceMetrics.totalEnd = performance.now();            currentAudio = null;
             stopListeningMode();
           };
     
           try {
             await currentAudio.play();
-            state = 'SPEAKING';  // ✅ SET STATE *AFTER* TTS starts
-            console.log("🔈 Bot started speaking");
-          } catch (err) {
+            state = 'SPEAKING';  // ✅ SET STATE *AFTER* TTS starts          } catch (err) {
             console.error("🔇 Audio playback error:", err);
             unlockUI();
           }
@@ -3789,15 +3513,11 @@
         currentAudio.currentTime = 0; // Reset playback position
         currentAudio.src = "";
         currentAudio.load(); // Force reload
-        currentAudio = null;
-        console.log("🛑 Bot speech interrupted");
-      }
+        currentAudio = null;      }
     }
     
     // === Manual stop ===
-    function stopListeningMode() {
-      console.log("⏹️ Stopping listening mode");
-      state = 'IDLE';
+    function stopListeningMode() {      state = 'IDLE';
       
       if (inactivityTimeout) {
         clearTimeout(inactivityTimeout);
@@ -3812,9 +3532,7 @@
       // Stop VAD to prevent callbacks after manual stop
       if (myvad) {
         try {
-          myvad.pause();
-          console.log("🛑 VAD paused");
-        } catch (err) {
+          myvad.pause();        } catch (err) {
           console.error("⚠️ Error pausing VAD:", err);
         }
       }
@@ -3858,9 +3576,7 @@
       
       // Reset counter after a delay to allow for legitimate retries
       setTimeout(() => {
-        if (window.transcribeAudioCallCount > 0) {
-          console.log(`🔍 DEBUG: Resetting call counter from ${window.transcribeAudioCallCount} to 0`);
-          window.transcribeAudioCallCount = 0;
+        if (window.transcribeAudioCallCount > 0) {          window.transcribeAudioCallCount = 0;
         }
       }, 5000);
       
@@ -3876,9 +3592,7 @@
         // Convert audio buffer to base64 - optimized approach
         let base64Audio;
         try {
-          const uint8Array = new Uint8Array(audioBuffer);
-          console.log(`🔍 Converting audio to base64: ${uint8Array.length} bytes (${(uint8Array.length / 1024).toFixed(2)} KB)`);
-          
+          const uint8Array = new Uint8Array(audioBuffer);          
           // Use optimized chunked conversion for all sizes to prevent memory issues
           const chunks = [];
           const chunkSize = 32768; // 32KB chunks for optimal performance
@@ -3887,15 +3601,10 @@
             const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
             chunks.push(String.fromCharCode(...chunk));
           }
-          base64Audio = btoa(chunks.join(''));
-          console.log(`✅ Base64 conversion complete: ${(base64Audio.length / 1024).toFixed(2)} KB`);
-        } catch (base64Error) {
+          base64Audio = btoa(chunks.join(''));        } catch (base64Error) {
           console.error('❌ Base64 conversion error:', base64Error);
           throw new Error(`Base64 conversion failed: ${base64Error.message}`);
-        }
-        
-        console.log("📤 Starting WoT STT transcription...");
-        
+        }        
         // Show visual feedback for transcription
         messageInput.placeholder = "🎤 Transcribing audio...";
         
@@ -3910,9 +3619,7 @@
         
         // Set up the promise and handler BEFORE invoking the action to avoid race condition
         const transcriptionPromise = new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            console.log(`⏰ STT timeout for requestId: ${clientRequestId}`);
-            // Clean up the pending request handler
+          const timeout = setTimeout(() => {            // Clean up the pending request handler
             if (window.pendingSTTRequests && window.pendingSTTRequests[clientRequestId]) {
               delete window.pendingSTTRequests[clientRequestId];
             }
@@ -3922,17 +3629,12 @@
           // Store the request handler in a global registry for the existing subscription to use
           if (!window.pendingSTTRequests) {
             window.pendingSTTRequests = {};
-          }
-          
-          console.log(`🎯 Registering STT handler for requestId: ${clientRequestId}`);
-          
+          }          
           window.pendingSTTRequests[clientRequestId] = {
             resolve: (text) => {
                 clearTimeout(timeout);
                 performanceMetrics.sttEnd = performance.now();
-                logTiming('🧠 STT Processing', performanceMetrics.sttStart, performanceMetrics.sttEnd);
-              console.log("🧾 Transcription completed:", text);
-              messageInput.placeholder = "Type your message here..."; // Reset placeholder
+                logTiming('🧠 STT Processing', performanceMetrics.sttStart, performanceMetrics.sttEnd);              messageInput.placeholder = "Type your message here..."; // Reset placeholder
               window.transcribeAudioCallCount--; // Decrement on successful completion
               delete window.pendingSTTRequests[clientRequestId];
               resolve(text || "(Could not transcribe)");
@@ -3967,15 +3669,12 @@
           delete window.pendingSTTRequests[clientRequestId];
           throw new Error(actionResult.message || 'Failed to start transcription');
         }
-        
-        console.log(`✅ STT action started with backend requestId: ${actionResult.requestId}, client requestId: ${clientRequestId}`);
-
         // Wait for transcription completion via event
         return transcriptionPromise;
         
       } catch (error) {
-        console.error(`🔍 DEBUG: transcribeAudio caught error:`, error);
-        console.error(`🔍 DEBUG: Error stack:`, error.stack);
+        console.error(` transcribeAudio caught error:`, error);
+        console.error(` Error stack:`, error.stack);
         performanceMetrics.sttEnd = performance.now();
         logTiming('🧠 STT Error', performanceMetrics.sttStart, performanceMetrics.sttEnd);
         console.error("STT Error:", error);
@@ -3991,16 +3690,10 @@
         // Check if llmThing is available
         if (!window.llmThing) {
           throw new Error('LLM Thing is not connected');
-        }
-
-        console.log("🔊 Starting WoT TTS generation...");
-        
+        }        
         // Use WoT action instead of REST endpoint
         const preferredVoice = localStorage.getItem('tts_voice') || 'af_sky';
-        const preferredLang = localStorage.getItem('tts_language') || 'en';
-        
-        console.log('🔊 Frontend TTS request:', { voice: preferredVoice, language: preferredLang });
-        
+        const preferredLang = localStorage.getItem('tts_language') || 'en';        
         const result = await window.llmThing.invokeAction('textToSpeech', { 
           text: text,
           language: preferredLang,
@@ -4008,34 +3701,19 @@
         });
 
         performanceMetrics.ttsEnd = performance.now();
-        logTiming('🔊 TTS Generation', performanceMetrics.ttsStart, performanceMetrics.ttsEnd);
-
-        console.log('🔊 DEBUG FRONTEND: WoT action result:', result);
-        console.log('🔊 DEBUG FRONTEND: result type:', typeof result);
-        console.log('🔊 DEBUG FRONTEND: result keys:', result ? Object.keys(result) : 'N/A');
-        console.log('🔊 DEBUG FRONTEND: result.value type:', typeof result?.value);
-        
+        logTiming('🔊 TTS Generation', performanceMetrics.ttsStart, performanceMetrics.ttsEnd);        
         // CRITICAL: WoT actions should ALWAYS be accessed via result.value()
         // Do NOT access result.data directly as it locks the stream before we can read it
         let actualResult;
         
-        if (result.value && typeof result.value === 'function') {
-          console.log('🔊 DEBUG FRONTEND: Calling result.value() to get TTS data...');
-          try {
-            actualResult = await result.value();
-            console.log('🔊 DEBUG FRONTEND: Got data via result.value():', actualResult);
-          } catch (err) {
+        if (result.value && typeof result.value === 'function') {          try {
+            actualResult = await result.value();          } catch (err) {
             console.error('🔊 DEBUG FRONTEND: result.value() failed:', err);
             throw new Error('Unable to read TTS data from WoT action: ' + err.message);
           }
         } else {
           throw new Error('result.value() is not available - cannot read TTS data');
         }
-        
-        console.log('🔊 DEBUG FRONTEND: Final actualResult:', actualResult);
-        console.log('🔊 DEBUG FRONTEND: actualResult.success:', actualResult?.success);
-        console.log('🔊 DEBUG FRONTEND: actualResult.error:', actualResult?.error);
-
         if (!actualResult || !actualResult.success) {
           throw new Error(actualResult?.error || 'TTS action failed');
         }
@@ -4051,9 +3729,7 @@
           audioArray[i] = audioData.charCodeAt(i);
         }
         
-        const blob = new Blob([audioArray], { type: 'audio/wav' });
-        console.log(`✅ TTS completed in ${actualResult.processingTime}ms`);
-        return blob;
+        const blob = new Blob([audioArray], { type: 'audio/wav' });        return blob;
 
       } catch (error) {
         performanceMetrics.ttsEnd = performance.now();
@@ -4079,9 +3755,7 @@
 
     // Utility function to log timing
     function logTiming(label, startTime, endTime) {
-      const duration = endTime - startTime;
-      console.log(`⏱️ ${label}: ${duration}ms`);
-      return duration;
+      const duration = endTime - startTime;      return duration;
     }
 
     // Simple markdown to HTML converter
@@ -4167,40 +3841,9 @@
     // Add global function to check stream statistics
     window.checkStreamStats = () => {
       if (window.conversationStreamStats) {
-        
-        // Check for potential message loss indicators
-        if (window.conversationStreamStats.tokenMessages === 0 && window.conversationStreamStats.finalMessages > 0) {
-          console.log('⚠️ POTENTIAL ISSUE: Final message received but no token messages - possible message loss');
-        }
-        
-        if (window.conversationStreamStats.planningMessages === 0 && window.conversationStreamStats.tokenMessages > 0) {
-          console.log('⚠️ POTENTIAL ISSUE: Token messages received but no planning messages - possible message loss');
-        }
-        
         return window.conversationStreamStats;
-      } else {
-        console.log('📊 No conversation stream statistics available yet');
-        return null;
       }
-    };
-
-    // Add global function to check stream statistics
-    window.checkStreamStats = () => {
-      if (window.conversationStreamStats) {
-        // Check for potential message loss indicators
-        if (window.conversationStreamStats.tokenMessages === 0 && window.conversationStreamStats.finalMessages > 0) {
-          console.log('⚠️ POTENTIAL ISSUE: Final message received but no token messages - possible message loss');
-        }
-        
-        if (window.conversationStreamStats.planningMessages === 0 && window.conversationStreamStats.tokenMessages > 0) {
-          console.log('⚠️ POTENTIAL ISSUE: Token messages received but no planning messages - possible message loss');
-        }
-        
-        return window.conversationStreamStats;
-      } else {
-        console.log('📊 No conversation stream statistics available yet');
-        return null;
-      }
+      return null;
     };
 
     // Make addMessage globally available
@@ -4253,9 +3896,7 @@
 
       const thinking = addMessage('🧠 Planning...', false, true);
 
-      try {
-        console.log('🧠 Invoking processConversationStream WoT action');
-        const userId = requireLoggedInUserId();
+      try {        const userId = requireLoggedInUserId();
 
         // Clear previous stream UI state
         window.activeStreamRequestId = null;
@@ -4392,17 +4033,12 @@
           });
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        console.log('✈️ flyTo →', { lon, lat, hgt });
-        await new Promise((resolve) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));        await new Promise((resolve) => {
           window.viewer.camera.flyTo({
             destination: dest,
             orientation: { heading: head, pitch: pit, roll: rol },
             duration: 3,
-            complete () {
-              console.log('✅ flyTo complete');
-              programmaticMove = false;
+            complete () {              programmaticMove = false;
               window.programmaticMove = false;
               resolve();
             }
@@ -4444,15 +4080,10 @@
     
     // Fetch real user from server (NEVER trust static config for auth!)
     (async function loadCurrentUser() {
-      try {
-        console.log('🔍 Fetching current user from /api/auth/check...');
-        const response = await fetch('/api/auth/check', {
+      try {        const response = await fetch('/api/auth/check', {
           credentials: 'include' // CRITICAL: Include session cookies
         });
-        const data = await response.json();
-        
-        console.log('📋 Auth check response:', data);
-        
+        const data = await response.json();        
         if (data.authenticated && data.email) {
           window.currentAuthenticatedUser = data.email;
           window.currentUserId = data.userId ?? null; // numeric PK
@@ -4460,9 +4091,6 @@
           // Display full name in UI (or email if no full name)
           const displayName = data.name || data.email;
           userNameEl.textContent = displayName;
-          
-          console.log('✅ Logged in as:', displayName, '(', data.email, ')');
-
           // Notify the server that a new browser session has started so it clears
           // any stale selected-building state left over from the previous page load.
           fetch('/api/session/start', {
@@ -4812,17 +4440,12 @@
           });
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        console.log('✈️ flyTo →', { lon, lat, hgt });
-        await new Promise((resolve) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));        await new Promise((resolve) => {
           window.viewer.camera.flyTo({
             destination: dest,
             orientation: { heading: head, pitch: pit, roll: rol },
             duration: 3,
-            complete() {
-              console.log('✅ flyTo complete');
-              window.programmaticMove = false;
+            complete() {              window.programmaticMove = false;
               resolve();
             }
           });

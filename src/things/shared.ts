@@ -90,8 +90,6 @@ export async function startServient(): Promise<{ servient: Servient; WoT: any }>
   servient.addClientFactory(new HttpsClientFactory({
     allowSelfSigned: true
   }));
-  console.log('✅ Added HTTP/HTTPS client factories to servient');
-
   const httpServer = new HttpServer({
     address: '0.0.0.0', // Bind to all network interfaces
     port: Number(process.env.WOT_SMARTBOT_PORT),
@@ -108,7 +106,6 @@ export async function startServient(): Promise<{ servient: Servient; WoT: any }>
       clientId: 'smartbot-server',
       rejectUnauthorized: false // Allow self-signed certificates
     });
-    console.log('✅ MQTT server created successfully');
   } catch (error) {
     console.error('❌ MQTT server creation failed:', error);
     console.warn('⚠️ Continuing without MQTT support. Some features may not work properly.');
@@ -117,9 +114,6 @@ export async function startServient(): Promise<{ servient: Servient; WoT: any }>
   servient.addServer(httpServer);
   if (mqttServer) {
     servient.addServer(mqttServer);
-    console.log('✅ MQTT server added to servient');
-  } else {
-    console.log('⚠️ Skipping MQTT server addition as it failed to initialize');
   }
 
   const WoT = await servient.start().catch((error) => {
@@ -127,7 +121,6 @@ export async function startServient(): Promise<{ servient: Servient; WoT: any }>
     if (error && typeof error === 'object' && 'errors' in error) {
       console.error('AggregateError details:', (error as any).errors);
       // Try to start with just HTTP server
-      console.log('🔄 Retrying with HTTP server only...');
       const httpOnlyServient = new Servient();
       httpOnlyServient.addCredentials(thingCredentials);
       httpOnlyServient.addServer(httpServer);
@@ -159,7 +152,7 @@ function getPerUserMqttPub(): MqttLib.MqttClient | null {
       rejectUnauthorized: false,
       reconnectPeriod: 5000
     });
-    perUserMqttPub.on('connect', () => console.log('✅ Per-user MQTT publisher connected'));
+    perUserMqttPub.on('connect', () => {});
     perUserMqttPub.on('error', (err) => console.error('❌ Per-user MQTT publisher error:', err.message));
   } catch (err) {
     console.error('❌ Failed to create per-user MQTT publisher:', err);
@@ -189,7 +182,6 @@ export function createEmitEvent(thing: any): EmitEventFn {
       if (userId != null) {
         const topic = `smartbot/user/${userId}/events/${eventName}`;
         pub.publish(topic, JSON.stringify(data), { qos: 0 });
-        console.log(`📤 Published per-user event to ${topic}`);
       }
     }
   };
