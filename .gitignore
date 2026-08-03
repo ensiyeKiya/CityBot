@@ -109,3 +109,9 @@ Thumbs.db
 .env.backup
 
 # others
+
+# Demo video (too large for GitHub; use YouTube on published Pages)
+demo/*.mov
+demo/*.mp4
+docs/assets/*.mov
+docs/assets/*.mp4
