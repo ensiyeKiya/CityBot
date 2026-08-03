@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SmartBot — Urban Digital Twin via W3C Web of Things</title>
-  <meta name="description" content="SmartBot: conversational access to Sofia's urban digital twin. IEEE BigData 2026 demo.">
+  <title>CityBot: Talking to and Steering an Urban Digital Twin</title>
+  <meta name="description" content="CityBot: Talking to and Steering an Urban Digital Twin">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@600&display=swap" rel="stylesheet">
@@ -246,18 +246,87 @@
       border-top: 1px solid var(--border);
     }
 
-    /* Architecture */
-    .arch-diagram {
+    .keywords {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .keywords span {
+      background: var(--accent-light);
+      color: var(--navy);
+      font-size: 0.82rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+    }
+
+    .demo-step {
       background: var(--white);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.5rem;
-      font-family: ui-monospace, 'Cascadia Code', monospace;
-      font-size: 0.78rem;
-      line-height: 1.45;
-      overflow-x: auto;
-      white-space: pre;
+      padding: 1rem 1.15rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .demo-step strong {
       color: var(--navy);
+      display: block;
+      margin-bottom: 0.35rem;
+      font-style: italic;
+    }
+
+    .demo-step p {
+      margin: 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .component-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    .component-card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.15rem;
+    }
+
+    .component-card h4 {
+      color: var(--navy);
+      margin-bottom: 0.4rem;
+      font-size: 1rem;
+    }
+
+    .component-card p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .arch-figure {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .arch-figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+
+    .arch-figure figcaption {
+      margin-top: 0.75rem;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.45;
     }
 
     /* Tables */
@@ -287,6 +356,21 @@
     }
 
     tr:last-child td { border-bottom: none; }
+
+    .resource-links {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 0.85rem;
+    }
+
+    .resource-links li {
+      margin-bottom: 0.25rem;
+    }
+
+    .resource-links li:last-child {
+      margin-bottom: 0;
+    }
 
     /* Demo queries */
     .queries {
@@ -340,21 +424,31 @@
     footer a { color: #93c5fd; }
     footer p { margin-bottom: 0.5rem; }
 
+    @media (max-width: 900px) {
+      .component-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
     @media (max-width: 600px) {
       .hero { padding: 2.5rem 1rem 2rem; }
       section { padding: 2rem 0; }
+      .component-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
 
   <header class="hero">
-    <h1>paper title</h1>
+    <h1>CityBot: Talking to and Steering an Urban Digital Twin</h1>
     <p>
-      short description
+      CityBot is a conversational interface for exploring Sofia’s urban digital twin. An LLM maps free-form
+      requests to typed WoT actions, while a Cesium.js frontend renders navigation, semantic
+      filtering, pollution replay, and forecast visualizations on an interactive 3D globe.
     </p>
     <div class="hero-actions">
-      <!-- <a class="btn btn-primary" id="live-demo-btn" href="https://chatbot.gate-ai.eu" target="_blank" rel="noopener">Try Live Demo</a> -->
       <a class="btn btn-secondary" id="github-btn" href="https://github.com/ensiyeKiya/CityBot" target="_blank" rel="noopener">View Source on GitHub</a>
     </div>
   </header>
@@ -365,17 +459,18 @@
     <section class="video-section" id="demo-video">
       <h2>Demo Video</h2>
       <div class="video-card">
-        <div class="video-wrapper" id="video-container">
-          <video id="hq-video" controls playsinline preload="metadata">
-            <source id="hq-video-source" src="" type="video/mp4">
-            <source id="hq-video-source-qt" src="" type="video/quicktime">
-          </video>
-          <div class="video-fallback" id="video-fallback" hidden>
-            <a id="fallback-watch-btn" class="watch-btn" href="https://github.com/ensiyeKiya/CityBot/releases/download/demo-video/city-demo.mov" target="_blank" rel="noopener">
-              ▶ Download / watch full quality (720p)
-            </a>
-            <p>If the player does not load, open the release asset directly.</p>
-          </div>
+        <div class="video-wrapper">
+          <iframe
+            src="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/preview"
+            title="CityBot demo video"
+            allow="autoplay; encrypted-media"
+            allowfullscreen>
+          </iframe>
+        </div>
+        <div class="video-caption">
+          Demo video embedded from Google Drive.
+          For better quality use
+          <a href="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/view?usp=sharing" target="_blank" rel="noopener">Open in Google Drive ↗</a>
         </div>
       </div>
     </section>
@@ -383,6 +478,195 @@
     <!-- Overview -->
     <section id="overview">
       <h2>Overview</h2>
+      <p>
+        Urban digital twins integrate heterogeneous geospatial, environmental, and semantic data,
+        but their use often remains limited to experts operating GIS tools, domain-specific APIs,
+        or bespoke dashboards. SmartBot lowers this barrier with a <strong>WoT-grounded conversational
+        interface</strong> for Sofia, Bulgaria — exposing urban capabilities as a machine-readable
+        affordance catalog that an LLM can invoke through typed actions.
+      </p>
+      <p>
+        Building on a previously introduced WoT-based architecture for integrating LLM agents with
+        heterogeneous systems, SmartBot maintains <strong>bidirectional synchronization</strong>
+        between the conversational context and the live 3D environment: LLM-selected actions update
+        the Cesium.js globe, while camera and building state ground subsequent user requests.
+      </p>
+
+      <h3>Contributions</h3>
+      <ul>
+        <li>A conversational urban digital twin with a domain-specific affordance model for navigation, semantic building interaction, environmental queries, historical replay, and predictive visualization</li>
+        <li>Six-resource integration spanning 3D city model, historical air quality, ML pollution forecasts, multi-operator sensor network, Wikipedia-grounded building knowledge, and live weather/geocoding</li>
+        <li>Bidirectional synchronization between natural-language dialogue and live map state</li>
+      </ul>
+
+    </section>
+
+    <!-- Architecture -->
+    <section id="architecture">
+      <h2>System Architecture</h2>
+      <figure class="arch-figure">
+        <img src="images/architecture.png" alt="CityBot four-component WoT integration architecture">
+      </figure>
+
+      <h3>Components</h3>
+      <div class="component-grid">
+        <div class="component-card">
+          <h4>WoT Gateway</h4>
+          <p>Hosts four Domain Things with W3C Thing Descriptions over HTTP/MQTT: <code>citymodel</code>, <code>airquality</code>, <code>api</code>, <code>knowledge</code>.</p>
+        </div>
+        <div class="component-card">
+          <h4>LLM Thing</h4>
+          <p>Multi-turn planning loop: injects camera and selected-building context, invokes WoT actions as OpenAI tools, supports Whisper STT and Kokoro TTS via DeepInfra.</p>
+        </div>
+        <div class="component-card">
+          <h4>Domain Things</h4>
+          <p>Adapt heterogeneous urban services — CityGML 3D tiles, PostgreSQL air quality, sensor feeds, Nominatim, OpenWeatherMap, Qdrant RAG to a common affordance model.</p>
+        </div>
+        <div class="component-card">
+          <h4>UI Thing</h4>
+          <p>Cesium.js WoT consumer: MQTT-driven map updates, incremental response streaming, bidirectional shared context with the LLM Thing.</p>
+        </div>
+      </div>
+
+      <h3>Urban affordances (WoT Thing Description)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Type</th><th>Group</th><th>Examples</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Action</td><td>Navigation</td><td><code>flyTo</code>, <code>getCoordinates</code>, <code>setCameraView</code>, <code>reverseGeocode</code></td></tr>
+            <tr><td>Action</td><td>3D model</td><td><code>loadTiles</code>, <code>filterBuildings</code>, <code>setVisualizationStyle</code></td></tr>
+            <tr><td>Action</td><td>Queries</td><td><code>getWikipediaSummary</code>, <code>getWeather</code></td></tr>
+            <tr><td>Action</td><td>Pollution</td><td><code>replayPollution</code>, <code>replayPrediction</code>, <code>clearPollutionClouds</code></td></tr>
+            <tr><td>Event</td><td>Map state</td><td>Layer, tileset, sensor, building-selection, pollution-replay updates</td></tr>
+            <tr><td>Property</td><td>Context</td><td><code>cameraState</code>, <code>selectedBuildingState</code>, weather configuration</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Urban data -->
+    <section id="resources">
+      <h2>Urban Data Resources</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Resource</th><th>Description</th><th>Sources</th><th>Thing</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Sofia 3D City Model</strong></td>
+              <td>CityGML-derived 3D Tiles with per-building walkability, height, UHI, energy bounds, and building class (residential, healthcare, educational, commercial)</td>
+              <td>
+                <ul class="resource-links">
+                  <li><a href="https://github.com/eshirinyan/three_sample/tree/main/sofia_building_tiles_20250821" target="_blank" rel="noopener">GATE 3D Tiles</a></li>
+                </ul>
+              </td>
+              <td><code>citymodel</code></td>
+            </tr>
+            <tr>
+              <td><strong>Historical Air Quality</strong></td>
+              <td>Hourly PM₁₀ / PM₂.₅ grid from Sensor.Community (Sofia &amp; Burgas since 2018), replayed over user-specified periods with CAQI coloring</td>
+              <td>
+                <ul class="resource-links">
+                  <li><a href="https://sensor.community/en/" target="_blank" rel="noopener">Sensor.Community</a></li>
+                </ul>
+              </td>
+              <td><code>airquality</code></td>
+            </tr>
+            <tr>
+              <td><strong>ML Pollution Forecasting</strong></td>
+              <td>24-hour PM forecasts via LSTM (trained 2018–2022, validated 2023–2024) using historical PM + meteorological variables</td>
+              <td>
+                <ul class="resource-links">
+                  <li><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a></li>
+                  <li><a href="https://sensor.community/en/" target="_blank" rel="noopener">Sensor.Community</a></li>
+                </ul>
+              </td>
+              <td><code>airquality</code></td>
+            </tr>
+            <tr>
+              <td><strong>Environmental Sensor Network</strong></td>
+              <td>Stations from Sofia Municipality, ExEA, and GATE — PM, gases (CO, NO₂, O₃…), and meteorological variables</td>
+              <td>
+                <ul class="resource-links">
+                  <li><a href="https://citylab.gate-ai.eu/#project-sofia-sensors" target="_blank" rel="noopener">GATE CityLab API</a></li>
+                </ul>
+              </td>
+              <td><code>api</code></td>
+            </tr>
+            <tr>
+              <td><strong>Wikipedia-Grounded Knowledge</strong></td>
+              <td>Buildings linked to Bulgarian Wikipedia; offline RAG with BAAI/bge-m3 embeddings in Qdrant, filtered by <code>wiki_pageid</code> at query time</td>
+              <td>
+                <ul class="resource-links">
+                  <li>internal database</li>
+                  
+                </ul>
+              </td>
+              <td><code>knowledge</code></td>
+            </tr>
+            <tr>
+              <td><strong>Weather &amp; Geocoding</strong></td>
+              <td>Nominatim (OpenStreetMap) forward/reverse geocoding chained with OpenWeatherMap for live conditions</td>
+              <td>
+                <ul class="resource-links">
+                  <li><a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a></li>
+                  <li><a href="https://openweathermap.org/" target="_blank" rel="noopener">OpenWeatherMap</a></li>
+                  <li><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap</a></li>
+                </ul>
+              </td>
+              <td><code>api</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Demo walkthrough -->
+    <section id="walkthrough">
+      <h2>Demonstration Walkthrough</h2>
+      <p>Each step below shows a different combination of data access, tool chaining, and visual feedback on the Sofia digital twin.</p>
+
+      <div class="demo-step">
+        <strong>“Load Sofia’s 3D buildings and color them by walkability.”</strong>
+        <p>Invokes <code>loadTiles</code> + <code>setVisualizationStyle</code> — graduated-color style from per-building walkability scores.</p>
+      </div>
+      <div class="demo-step">
+        <strong>“Show hospitals in red.”</strong>
+        <p>Invokes <code>filterBuildings</code> with <code>class=healthcare</code>; matching buildings highlighted in red, others in white.</p>
+      </div>
+      <div class="demo-step">
+        <strong>“Which buildings have the lowest walkability? Color them blue.”</strong>
+        <p>LLM translates “lowest walkability” to threshold <code>&lt;30</code> and filters with blue highlight.</p>
+      </div>
+      <div class="demo-step">
+        <strong>“Replay air pollution in Sofia on 31 December 2023 for 24 hours.”</strong>
+        <p>Invokes <code>replayPollution</code>; frontend animates CAQI-colored clouds hour by hour from PostgreSQL grid data.</p>
+      </div>
+      <div class="demo-step">
+        <strong>“Show the air-pollution forecast for Sofia for the next 24 hours.”</strong>
+        <p>Invokes <code>replayPrediction</code>; ML forecast grid rendered with the same CAQI cloud representation.</p>
+      </div>
+      <div class="demo-step">
+        <strong>“Tell me about this building. Who was its architect?”</strong>
+        <p>User selects National Palace of Culture; <code>wiki_pageid</code> from building metadata drives <code>getWikipediaSummary</code> + Qdrant retrieval.</p>
+      </div>
+    </section>
+
+    <!-- Acknowledgments -->
+    <section id="funding">
+      <h2>Acknowledgments</h2>
+      <p>
+        This research is supported by the GATE project, which is funded by the
+        Horizon 2020 WIDESPREAD-2018-2020 TEAMING Phase 2 programme under grant
+        agreement no.&nbsp;857155, and the programme &ldquo;Research, Innovation and
+        Digitalisation for Smart Transformation&rdquo; 2021&ndash;2027 (PRIDST) under grant
+        agreement no.&nbsp;BG16RFPR002-1.014-0010-C01 and DS4SSCC-DEP project, funded
+        by the European Union Digital Europe Work Programme 2021&ndash;2022 under Grant
+        Agreement no.&nbsp;101123342.
+      </p>
     </section>
 
   </div>
@@ -392,58 +676,25 @@
       <strong>Authors:</strong>
     </p>
     <p>
-      Big Data for Smart Society Institute (GATE), Sofia University &ldquo;St. Kliment Ohridski&rdquo;, Bulgaria<br>
-      Eindhoven University of Technology, The Netherlands
+      Big Data for Smart Society Institute (GATE), Sofia University &ldquo;St. Kliment Ohridski&rdquo;, Sofia, Bulgaria
     </p>
     <p>
       <a href="mailto:ensiye.kiyamousavi@gate-ai.eu">Contact</a> ·
       <a id="footer-github" href="https://github.com/ensiyeKiya/CityBot">GitHub</a> ·
+      <a href="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/view?usp=sharing" target="_blank" rel="noopener">Demo Video</a>
     </p>
-    <p style="margin-top:1rem; opacity:0.7;">All rights reserved to the authors.</p>
+    <p style="margin-top:1rem; opacity:0.7;">&copy; GATE Institute — All rights reserved to the authors.</p>
   </footer>
 
   <script>
-    const SITE_CONFIG = {
-      // Full 720p from a GitHub Release asset
-      videoUrl: 'https://github.com/ensiyeKiya/CityBot/releases/download/demo-video/city-demo.mov',
-      releasePage: 'https://github.com/ensiyeKiya/CityBot/releases/tag/demo-video',
-
-      // Local preview: cd docs && python3 -m http.server 8000
-      localVideo: 'assets/smartbot-demo.mov',
-
-      liveDemoUrl: 'https://chatbot.gate-ai.eu',
-      githubUrl: 'https://github.com/ensiyeKiya/CityBot'
-    };
-
-    const hqVideo = document.getElementById('hq-video');
-    const hqSource = document.getElementById('hq-video-source');
-    const hqSourceQt = document.getElementById('hq-video-source-qt');
-    const fallback = document.getElementById('video-fallback');
-
-    document.getElementById('live-demo-btn').href = SITE_CONFIG.liveDemoUrl;
-    document.getElementById('github-btn').href = SITE_CONFIG.githubUrl;
-    document.getElementById('footer-github').href = SITE_CONFIG.githubUrl;
-    document.getElementById('footer-demo').href = SITE_CONFIG.liveDemoUrl;
-    document.getElementById('release-link').href = SITE_CONFIG.releasePage;
-    document.getElementById('fallback-watch-btn').href = SITE_CONFIG.videoUrl;
-
-    const isLocalPreview =
-      location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-
-    const src = isLocalPreview ? SITE_CONFIG.localVideo : SITE_CONFIG.videoUrl;
-    hqSource.src = src;
-    hqSourceQt.src = src;
-    hqVideo.load();
-
-    hqVideo.addEventListener('loadeddata', () => {
-      fallback.hidden = true;
-      hqVideo.hidden = false;
-    });
-
-    hqVideo.addEventListener('error', () => {
-      hqVideo.hidden = true;
-      fallback.hidden = false;
-    });
+    const githubBtn = document.getElementById('github-btn');
+    const footerGithub = document.getElementById('footer-github');
+    const liveDemoBtn = document.getElementById('live-demo-btn');
+    const footerDemo = document.getElementById('footer-demo');
+    if (githubBtn) githubBtn.href = 'https://github.com/ensiyeKiya/CityBot';
+    if (footerGithub) footerGithub.href = 'https://github.com/ensiyeKiya/CityBot';
+    if (liveDemoBtn) liveDemoBtn.href = 'https://chatbot.gate-ai.eu';
+    if (footerDemo) footerDemo.href = 'https://chatbot.gate-ai.eu';
   </script>
 
 </body>
