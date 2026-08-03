@@ -1,0 +1,380 @@
+/**
+ * AirQuality Thing — serves historical PM10 / PM2.5 grid data together with
+ * machine-learning forecasts from the AirQuality PostgreSQL database, replayed
+ * on the 3D map as animated colored clouds.
+ */
+
+import {
+  fetchPollutionReplayData,
+  fetchPredictionReplayData,
+  fetchGridPoints,
+  resolvePolygonByCity,
+  listAvailableCities
+} from '../airQualityDB';
+import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
+
+const TITLE = 'airquality';
+
+export interface AirQualityThingOptions {
+  availableCities: string[];
+  availableModels: string[];
+  horizonSummary: string;
+  maxPredictionHours: number;
+}
+
+export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOptions): Promise<any> {
+  const { availableCities, availableModels, horizonSummary, maxPredictionHours } = options;
+
+  const thing = await WoT.produce({
+    id: THING_IDS.airquality,
+    title: TITLE,
+    description: 'AirQuality Thing: historical PM10/PM2.5 grid data and machine-learning forecasts from a PostgreSQL database',
+    ...SECURITY_SCHEME,
+    properties: {},
+    events: {
+      pollutionReplay: {
+        title: "Pollution Replay",
+        description: "Fires when a pollution replay is started, providing grid-point pollution data per hour for cloud coloring animation",
+        data: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["start", "stop"], description: "Whether to start or stop the replay" },
+            gridPoints: {
+              type: "array",
+              description: "Grid point positions (id, latitude, longitude, altitude) — sent once with 'start' action",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number" },
+                  latitude: { type: "number" },
+                  longitude: { type: "number" },
+                  altitude: { type: "number" }
+                }
+              }
+            },
+            hours: {
+              type: "array",
+              description: "Array of hourly snapshots, each containing an ISO hour string and an array of weighted_p1 values ordered by grid_point_id",
+              items: {
+                type: "object",
+                properties: {
+                  hour: { type: "string", format: "date-time" },
+                  values: { type: "array", items: { type: "number" } }
+                }
+              }
+            },
+            hoursCount: { type: "number" },
+            gridPointCount: { type: "number" },
+            startDate: { type: "string" },
+            intervalMs: { type: "number", description: "Milliseconds between each hour frame in the frontend animation" },
+            timestamp: { type: "string", format: "date-time" }
+          },
+          required: ["action"]
+        },
+        forms: mqttEventForm(TITLE, 'pollutionReplay')
+      }
+    },
+    actions: {
+      replayPollution: {
+        description: `Replays air pollution visually on the 3D map using animated colored clouds over a time period. Each cloud represents a grid point and changes color based on pollution levels following the CAQI daily standard (green=good, yellow=moderate, orange=poor, red=very poor, dark red=hazardous). Use this when the user asks to "show pollution", "replay pollution", "visualize air quality" for a specific time period and city. The frontend will animate the cloud colors hour by hour. IMPORTANT: You MUST specify the "city" parameter. Available cities: ${availableCities.join(', ')}. If no city is mentioned, default to "Sofia".`,
+        input: {
+          type: 'object',
+          properties: {
+            startDate: {
+              type: 'string',
+              description: 'Start date/time in ISO format (e.g. "2024-01-15T08:00:00"). Data available from 2017-02-20.'
+            },
+            hours: {
+              type: 'number',
+              description: 'Number of hours to replay (1-168, max 7 days). Default: 24.',
+              default: 24
+            },
+            intervalMs: {
+              type: 'number',
+              description: 'Animation speed — milliseconds between each hour frame on the frontend. Default: 1000 (1 second per hour).',
+              default: 1000
+            },
+            city: {
+              type: 'string',
+              description: `City name for which to replay pollution data. Available: ${availableCities.join(', ')}. Defaults to "Sofia" if not specified.`
+            },
+            parameter: {
+              type: 'string',
+              enum: ['PM10', 'PM2.5'],
+              description: 'Pollution parameter to replay. PM10 (particulate matter 10µm) or PM2.5 (particulate matter 2.5µm). Default: PM10.'
+            }
+          },
+          required: ['startDate']
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            hoursCount: { type: 'number' },
+            gridPointCount: { type: 'number' },
+            startDate: { type: 'string' },
+            endDate: { type: 'string' }
+          }
+        },
+        forms: httpForm(TITLE, 'actions', 'replayPollution', ['invokeaction'])
+      },
+      replayPrediction: {
+        description: `Replays predicted/forecasted PM10 air pollution on the 3D map using animated colored clouds. Use this when the user asks to "show prediction", "forecast pollution", "predict air quality", or "show future pollution". Only PM10 predictions are available. Colors follow CAQI daily standard (green=good, yellow=moderate, orange=poor, red=very poor, dark red=hazardous). Available cities: ${availableCities.join(', ')}. Available forecast horizons: ${horizonSummary}. If no city is mentioned, default to "Sofia".`,
+        input: {
+          type: 'object',
+          properties: {
+            city: {
+              type: 'string',
+              description: `City name for which to show prediction. Available: ${availableCities.join(', ')}. Defaults to "Sofia" if not specified.`
+            },
+            model: {
+              type: 'string',
+              ...(availableModels.length > 0 ? { enum: availableModels } : {}),
+              description: availableModels.length > 0
+                ? `ML model name to use for predictions. Available models: ${availableModels.join(', ')}. If not specified, uses the latest available model.`
+                : 'ML model name to use for predictions. If not specified, uses the latest available model.'
+            },
+            hours: {
+              type: 'number',
+              description: `Number of forecast hours to show (1–${maxPredictionHours}). Defaults to all available hours (${maxPredictionHours}). Use a smaller value if the user only wants to see the next few hours.`,
+              default: maxPredictionHours
+            },
+            intervalMs: {
+              type: 'number',
+              description: 'Animation speed — milliseconds between each hour frame. Default: 1000 (1 second per hour).',
+              default: 1000
+            }
+          }
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            model: { type: 'string' },
+            hoursCount: { type: 'number' },
+            gridPointCount: { type: 'number' },
+            startDate: { type: 'string' },
+            endDate: { type: 'string' }
+          }
+        },
+        forms: httpForm(TITLE, 'actions', 'replayPrediction', ['invokeaction'])
+      },
+      clearPollutionClouds: {
+        description: 'Removes/clears all pollution or prediction clouds from the 3D map. Use this when the user asks to "remove clouds", "clear pollution", "stop replay", "hide clouds", or "clear the map" after a pollution or prediction replay has finished.',
+        input: { type: 'object', properties: {} },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' }
+          }
+        },
+        forms: httpForm(TITLE, 'actions', 'clearPollutionClouds', ['invokeaction'])
+      }
+    }
+  });
+
+  const emitEvent = createEmitEvent(thing);
+
+  thing.setActionHandler('replayPollution', async (params: any) => {
+    const span = tracer.startSpan('replayPollution');
+    try {
+      let input: any;
+      if (params && typeof params.value === "function") {
+        input = await params.value();
+      } else {
+        input = params || {};
+      }
+
+      console.log('🌫️ Starting pollution replay:', input);
+
+      const userId = input?._userId ?? null;
+      const startDate = input.startDate;
+      if (!startDate) {
+        return { error: true, message: 'startDate is required (ISO format, e.g. "2024-01-15T08:00:00")' };
+      }
+
+      const hours = Math.min(Math.max(input.hours || 24, 1), 168);
+      const intervalMs = input.intervalMs || 1000;
+      const parameter = input.parameter || 'PM10';
+
+      let polygonId = 1;
+      const cityName = input.city;
+      if (cityName) {
+        const resolved = resolvePolygonByCity(cityName);
+        if (!resolved) {
+          const available = listAvailableCities();
+          return {
+            error: true,
+            message: `No pollution data found for city "${cityName}". Available cities: ${available.join(', ')}`
+          };
+        }
+        polygonId = resolved.polygonId;
+        console.log(`🏙️ Resolved city "${cityName}" to polygon_id ${polygonId} (${resolved.name})`);
+      }
+
+      const [replayData, gridPoints] = await Promise.all([
+        fetchPollutionReplayData({ startDate, hours, polygonId, parameter }),
+        fetchGridPoints(polygonId),
+      ]);
+
+      if (replayData.hoursReturned === 0) {
+        return {
+          success: false,
+          message: `No pollution data found for the requested period starting ${startDate}. Data is available from 2017-02-20 to present.`,
+        };
+      }
+
+      const endHour = replayData.hours[replayData.hours.length - 1].hour;
+
+      await emitEvent('pollutionReplay', {
+        action: 'start',
+        userId,
+        gridPoints: gridPoints.map((gp: any) => ({
+          id: gp.id,
+          latitude: Number(gp.latitude),
+          longitude: Number(gp.longitude),
+          altitude: gp.altitude ? Number(gp.altitude) : null,
+        })),
+        hours: replayData.hours,
+        hoursCount: replayData.hoursReturned,
+        gridPointCount: replayData.gridPointCount,
+        parameter,
+        startDate,
+        intervalMs,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`✅ Pollution replay emitted: ${replayData.hoursReturned} hours, ${replayData.gridPointCount} grid points`);
+
+      return {
+        success: true,
+        hoursReturned: replayData.hoursReturned,
+        gridPointCount: replayData.gridPointCount,
+        startDate,
+        endDate: endHour,
+      };
+    } catch (error) {
+      console.error("❌ Error in replayPollution handler:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: true, message: `Failed to replay pollution: ${errorMessage}` };
+    } finally {
+      span.end();
+    }
+  });
+
+  thing.setActionHandler('replayPrediction', async (params: any) => {
+    const span = tracer.startSpan('replayPrediction');
+    try {
+      let input: any;
+      if (params && typeof params.value === "function") {
+        input = await params.value();
+      } else {
+        input = params || {};
+      }
+
+      console.log('🔮 Starting prediction replay:', input);
+
+      const userId = input?._userId ?? null;
+      const intervalMs = input.intervalMs || 1000;
+      const model = input.model;
+      const hours: number | undefined = input.hours ? Math.max(1, Math.round(input.hours)) : undefined;
+
+      let polygonId = 1;
+      const cityName = input.city;
+      if (cityName) {
+        const resolved = resolvePolygonByCity(cityName);
+        if (!resolved) {
+          const available = listAvailableCities();
+          return {
+            error: true,
+            message: `No prediction data found for city "${cityName}". Available cities: ${available.join(', ')}`
+          };
+        }
+        polygonId = resolved.polygonId;
+        console.log(`🏙️ Resolved city "${cityName}" to polygon_id ${polygonId} (${resolved.name})`);
+      }
+
+      const [predictionData, gridPoints] = await Promise.all([
+        fetchPredictionReplayData({ polygonId, model, hours }),
+        fetchGridPoints(polygonId),
+      ]);
+
+      if (predictionData.hoursReturned === 0) {
+        return {
+          success: false,
+          message: 'No prediction data currently available. The forecast may not have been generated yet.',
+        };
+      }
+
+      await emitEvent('pollutionReplay', {
+        action: 'start',
+        userId,
+        isPrediction: true,
+        model: predictionData.model,
+        gridPoints: gridPoints.map((gp: any) => ({
+          id: gp.id,
+          latitude: Number(gp.latitude),
+          longitude: Number(gp.longitude),
+          altitude: gp.altitude ? Number(gp.altitude) : null,
+        })),
+        hours: predictionData.hours,
+        hoursCount: predictionData.hoursReturned,
+        gridPointCount: predictionData.gridPointCount,
+        parameter: 'PM10',
+        startDate: predictionData.startDate,
+        intervalMs,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`✅ Prediction replay emitted: ${predictionData.hoursReturned} hours, ${predictionData.gridPointCount} grid points, model: ${predictionData.model}`);
+
+      return {
+        success: true,
+        model: predictionData.model,
+        hoursReturned: predictionData.hoursReturned,
+        gridPointCount: predictionData.gridPointCount,
+        startDate: predictionData.startDate,
+        endDate: predictionData.endDate,
+      };
+    } catch (error) {
+      console.error("❌ Error in replayPrediction handler:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: true, message: `Failed to replay prediction: ${errorMessage}` };
+    } finally {
+      span.end();
+    }
+  });
+
+  thing.setActionHandler('clearPollutionClouds', async (params: any) => {
+    const span = tracer.startSpan('clearPollutionClouds');
+    try {
+      let input: any = {};
+      if (params && typeof params.value === 'function') input = await params.value();
+      else if (params) input = params;
+      const userId = input?._userId ?? null;
+      console.log('🧹 Clearing pollution/prediction clouds from map');
+
+      await emitEvent('pollutionReplay', {
+        action: 'stop',
+        userId,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log('✅ Emitted pollutionReplay stop event');
+      return { success: true, message: 'Pollution clouds cleared from the map.' };
+    } catch (error) {
+      console.error("❌ Error in clearPollutionClouds handler:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: true, message: `Failed to clear clouds: ${errorMessage}` };
+    } finally {
+      span.end();
+    }
+  });
+
+  await thing.expose();
+  console.log(`✅ AirQuality Thing exposed as "${TITLE}"`);
+  return thing;
+}
