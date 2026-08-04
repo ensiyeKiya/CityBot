@@ -7,9 +7,9 @@ import './state.js';
 import './chat.js';
 import './events.js';
 import './wot.js';
+import './auth.js';
 import './bootstrap.js';
 import './camera.js';
-import './auth.js';
 import './ready.js';
 
 if (typeof window.WoT === 'undefined') {
