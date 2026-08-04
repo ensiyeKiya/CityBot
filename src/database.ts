@@ -552,9 +552,12 @@ async function createChatHistoryTable(): Promise<void> {
         session_id VARCHAR(36) NOT NULL,
         role       VARCHAR(20) NOT NULL,
         content    TEXT NOT NULL,
+        tools_used TEXT[] NOT NULL DEFAULT '{}',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    // Migration for databases created before the tools_used column existed
+    await client.query(`ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS tools_used TEXT[] NOT NULL DEFAULT '{}'`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_history_user_id    ON chat_history(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_history_session_id ON chat_history(session_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_history_created_at ON chat_history(created_at)`);
@@ -565,14 +568,14 @@ async function createChatHistoryTable(): Promise<void> {
   }
 }
 
-export async function saveChatMessage(userId: number, sessionId: string, role: string, content: string): Promise<void> {
+export async function saveChatMessage(userId: number, sessionId: string, role: string, content: string, toolsUsed: string[] = []): Promise<void> {
   const client = getDatabaseClient();
 
   try {
     assertValidUserId(userId, 'saveChatMessage');
     await client.query(
-      'INSERT INTO chat_history (user_id, session_id, role, content) VALUES ($1, $2, $3, $4)',
-      [userId, sessionId, role, content]
+      'INSERT INTO chat_history (user_id, session_id, role, content, tools_used) VALUES ($1, $2, $3, $4, $5)',
+      [userId, sessionId, role, content, toolsUsed]
     );
   } catch (error) {
     console.error('Error saving chat message to DB:', error);
@@ -580,19 +583,23 @@ export async function saveChatMessage(userId: number, sessionId: string, role: s
   }
 }
 
-export async function getChatHistory(sessionId: string, limit: number = 20): Promise<{ role: string; content: string }[]> {
+export async function getChatHistory(sessionId: string, limit: number = 20): Promise<{ role: string; content: string; toolsUsed: string[] }[]> {
   const client = getDatabaseClient();
 
   try {
     const result = await client.query(
-      `SELECT role, content
+      `SELECT role, content, tools_used
        FROM chat_history
        WHERE session_id = $1
        ORDER BY created_at ASC
        LIMIT $2`,
       [sessionId, limit]
     );
-    return result.rows;
+    return result.rows.map((row: any) => ({
+      role: row.role,
+      content: row.content,
+      toolsUsed: row.tools_used ?? []
+    }));
   } catch (error) {
     console.error('Error fetching chat history from DB:', error);
     return [];

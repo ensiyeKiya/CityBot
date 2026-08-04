@@ -614,6 +614,26 @@ async function main() {
       .slice(-maxMessages);
   }
 
+  /**
+   * Convert stored history entries into clean {role, content} messages for the
+   * model. Assistant turns that were fulfilled via tools get an explicit
+   * "[via tools: ...]" marker: without it, replayed history shows action
+   * requests being "completed" by plain text alone, which teaches the model
+   * to answer new action requests without calling any tool.
+   */
+  function toModelMessages(history: any[]): any[] {
+    return history.map((message) => {
+      const toolsUsed: string[] = Array.isArray(message?.toolsUsed) ? message.toolsUsed : [];
+      if (message?.role === 'assistant' && toolsUsed.length > 0) {
+        return {
+          role: 'assistant',
+          content: `[via tools: ${[...new Set(toolsUsed)].join(', ')}] ${message.content}`
+        };
+      }
+      return { role: message.role, content: message.content };
+    });
+  }
+
   function trimConversationHistory(history: any[], maxMessages: number): any[] {
     const reusableHistory = getReusableConversationHistory(history, maxMessages);
     while (reusableHistory.length > 0 && reusableHistory[0]?.role !== 'user') {
@@ -1037,7 +1057,7 @@ async function main() {
       const systemPrompt = loadSystemPrompt(userMapState, userSelectedBuilding);
       await loadUserHistory(sessionId);
       const conversationHistory = getUserHistory(sessionId);
-      const recentHistory = getReusableConversationHistory(conversationHistory, 10);
+      const recentHistory = toModelMessages(getReusableConversationHistory(conversationHistory, 10));
 
       const conversation: any[] = [
         { role: "system", content: systemPrompt },
@@ -1172,11 +1192,16 @@ async function main() {
       const otherServerTimeMs = Math.max(0, processingTime - modelTimeMs - toolTimeMs);
       const modelSharePct = processingTime > 0 ? Math.round((modelTimeMs / processingTime) * 1000) / 10 : 0;
 
-      // Persist exchange to DB and update in-memory cache
-      conversationHistory.push({ role: 'user', content: message }, { role: 'assistant', content: finalContent });
+      // Persist exchange to DB and update in-memory cache.
+      // toolsUsed is stored alongside the assistant turn so history replay can
+      // show the model that this answer was fulfilled via tool calls.
+      conversationHistory.push(
+        { role: 'user', content: message },
+        { role: 'assistant', content: finalContent, toolsUsed: [...toolsUsed] }
+      );
       userConversationHistories.set(sessionId, trimConversationHistory(conversationHistory, 6));
       await saveChatMessage(userId, sessionId, 'user', message);
-      await saveChatMessage(userId, sessionId, 'assistant', finalContent);
+      await saveChatMessage(userId, sessionId, 'assistant', finalContent, toolsUsed);
       await saveConversationTrace({
         request_id: requestId,
         session_id: sessionId,
@@ -1249,7 +1274,7 @@ async function main() {
       // Limit conversation history to prevent token overflow and timeouts
       const maxHistoryMessages = 10;
       
-      const recentHistory = getReusableConversationHistory(conversationHistory, maxHistoryMessages);
+      const recentHistory = toModelMessages(getReusableConversationHistory(conversationHistory, maxHistoryMessages));
       
       const conversation: any[] = [
         { role: "system", content: systemPrompt },
@@ -1627,14 +1652,16 @@ async function main() {
           // message duplicates finalContent, producing [assistant, assistant]
           // pairs in history that teach the model to answer action requests
           // without tool calls (tool messages are filtered out of history).
+          // toolsUsed is stored alongside the assistant turn so history replay
+          // can show the model that this answer was fulfilled via tool calls.
           conversationHistory.push(
             { role: 'user', content: message },
-            { role: 'assistant', content: finalContent }
+            { role: 'assistant', content: finalContent, toolsUsed: [...toolsUsed] }
           );
 
           // Persist user message and final assistant response to DB
           await saveChatMessage(userId, sessionId, 'user', message);
-          await saveChatMessage(userId, sessionId, 'assistant', finalContent);
+          await saveChatMessage(userId, sessionId, 'assistant', finalContent, toolsUsed);
 
           // Save full reasoning trace for fine-tuning / analysis
           const trace: ConversationTrace = {
