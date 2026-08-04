@@ -457,8 +457,10 @@
       }
       
       try {
-        // Create Cesium 3D tile style from server-provided definition        const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
-        window.sofiaTileset.style = cesiumStyle;      } catch (error) {
+        // Create Cesium 3D tile style from server-provided definition
+        const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
+        window.sofiaTileset.style = cesiumStyle;
+      } catch (error) {
         console.error(`❌ Failed to apply style ${styleName}:`, error);
         console.error(`❌ Error details:`, {
           message: error.message,
@@ -1032,7 +1034,8 @@
           
           try {
             if (payload.action === 'remove') {
-              // Remove all sensor entities              window.sensorEntities.forEach(entity => {
+              // Remove all sensor entities
+              window.sensorEntities.forEach(entity => {
                 window.viewer.entities.remove(entity);
               });
               window.sensorEntities = [];
@@ -1150,7 +1153,8 @@
                   shouldShow = entityName.toLowerCase().includes(searchValue);
                   
                 } else if (payload.filterType === 'parameter') {
-                  // This would require reloading with different parameter                }
+                  // This would require reloading with different parameter
+                }
                 
                 entity.show = shouldShow;
               });
@@ -1808,19 +1812,21 @@
     // Initialize everything when the page loads
     window.addEventListener('load', async () => {      
       try {
-        // First initialize Cesium with timeout        await Promise.race([
+        // First initialize Cesium with timeout
+        await Promise.race([
           initCesium(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Cesium initialization timeout')), 30000))
-        ]);        
+        ]);
         // Make sure viewer is defined before proceeding
         if (!window.viewer) {
           throw new Error('Cesium viewer was not initialized properly');
         }
         
-        // Then initialize WoT connections with timeout        await Promise.race([
+        // Then initialize WoT connections with timeout
+        await Promise.race([
           window.initWoT(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('WoT initialization timeout')), 45000))
-        ]);        
+        ]);
       } catch (err) {
         console.error('❌ Initialization error:', err);
         
@@ -1836,7 +1842,8 @@
           window.addMessage('❌ Initialization error: ' + errorMessage, false, true);
         }
         
-        // Try to continue with basic functionality even if initialization fails      }
+        // Try to continue with basic functionality even if initialization fails
+      }
     });
     
     /* ========================= 3. Chat helpers ======================== */
@@ -2376,7 +2383,8 @@
     
           try {
             await currentAudio.play();
-            state = 'SPEAKING';  // ✅ SET STATE *AFTER* TTS starts          } catch (err) {
+            state = 'SPEAKING';
+          } catch (err) {
             console.error("🔇 Audio playback error:", err);
             unlockUI();
           }
