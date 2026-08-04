@@ -2,7 +2,7 @@
 ## Start on the server with:  docker compose -f docker-compose.qdrant.yml up -d
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.14.0
     container_name: citybot-qdrant
     restart: unless-stopped
     ports:
