@@ -1956,7 +1956,10 @@ async function main() {
   app.set('trust proxy', 1);
   
   // Session configuration — PostgreSQL store (survives restarts, safe for production)
-  const sessionSecret = process.env.SESSION_SECRET || 'change-this-secret-in-production';
+  const sessionSecret = process.env.SESSION_SECRET?.trim();
+  if (!sessionSecret) {
+    throw new Error('SESSION_SECRET environment variable is required. Set it in .env before starting the server.');
+  }
   const PgSession = connectPgSimple(session);
   const sessionStore = dbConnected
     ? new PgSession({
@@ -1991,6 +1994,29 @@ async function main() {
   const templatesDir = path.join(__dirname, '../templates');
   const staticDir = path.join(__dirname, '../static');
   app.use(express.static(staticDir));
+
+  const APP_CONFIG_PLACEHOLDER = '<!-- INJECT_APP_CONFIG -->';
+  const cityBotTemplatePath = path.join(templatesDir, 'index_citybot.html');
+  const cityBotTemplate = fs.readFileSync(cityBotTemplatePath, 'utf8');
+
+  function getClientAppConfig() {
+    return {
+      SERVER_NAME: process.env.SERVER_NAME,
+      WOT_SMARTBOT_PORT: Number(process.env.WOT_SMARTBOT_PORT) || 8081,
+      WOT_LLM_PORT: Number(process.env.WOT_LLM_PORT) || 3001,
+      WEB_PORT: Number(process.env.WEB_PORT) || 3000,
+      WOT_USERNAME: process.env.WOT_USERNAME,
+      WOT_PASSWORD: process.env.WOT_PASSWORD,
+      MQTT_USER: process.env.MQTT_USER,
+      MQTT_PASSWORD: process.env.MQTT_PASS,
+      ION_ACCESS_TOKEN: process.env.ION_ACCESS_TOKEN,
+    };
+  }
+
+  function renderCityBotPage(): string {
+    const configScript = `<script>window.APP_CONFIG = ${JSON.stringify(getClientAppConfig())};</script>`;
+    return cityBotTemplate.replace(APP_CONFIG_PLACEHOLDER, configScript);
+  }
 
   app.use(express.raw({ type: 'audio/webm', limit: '25mb' }));
 
@@ -2211,25 +2237,8 @@ async function main() {
     perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());    res.json({ success: true });
   });
 
-  // Serve configuration endpoint (requires authentication)
-  app.get('/config.js', requireAuth, (req: Request, res: Response) => {    
-    const config = {
-      SERVER_NAME: process.env.SERVER_NAME,
-      WOT_SMARTBOT_PORT: Number(process.env.WOT_SMARTBOT_PORT) || 8081,
-      WOT_LLM_PORT: Number(process.env.WOT_LLM_PORT) || 3001,
-      WEB_PORT: Number(process.env.WEB_PORT) || 3000,
-      WOT_USERNAME: process.env.WOT_USERNAME || 'admin',
-      WOT_PASSWORD: process.env.WOT_PASSWORD || '6VPXcB3q92rBLz/dZa1xDQOovbIlhn8Vqcgm8CDFT8M='
-      // NOTE: Do NOT include CURRENT_USER here - frontend fetches it dynamically via /api/auth/check
-    };
-    
-    res.setHeader('Content-Type', 'application/javascript');
-    res.send(`window.APP_CONFIG = ${JSON.stringify(config, null, 2)};`);
-  });
-
   // Serve the login page
   app.get('/login', (req: Request, res: Response) => {
-    // Redirect to main page if already logged in
     if (req.session && req.session.authenticated) {
       res.redirect('/');
     } else {
@@ -2240,7 +2249,7 @@ async function main() {
   // Serve the main HTML page (requires authentication)
   app.get('/', (req: Request, res: Response) => {
     if (req.session && req.session.authenticated) {
-      res.sendFile(path.join(templatesDir, 'index_citybot.html'));
+      res.type('html').send(renderCityBotPage());
     } else {
       res.redirect('/login');
     }

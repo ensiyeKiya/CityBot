@@ -16,30 +16,18 @@
   <!-- MQTT.js for WebSocket MQTT support -->
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 
+  <!-- INJECT_APP_CONFIG -->
   <script>
-    // Ensure WoT library loads properly
     if (typeof window.WoT === 'undefined') {
       console.error('Failed to load WoT library from CDN');
-    } else {    }
+    }
 
-    // Configuration will be injected by the server
-    window.APP_CONFIG = window.APP_CONFIG || {
-      SERVER_NAME: 'chatbot.gate-ai.eu',
-      WOT_SMARTBOT_PORT: 8081,
-      // NOTE: CURRENT_USER removed - use window.currentAuthenticatedUser instead!
-      WOT_LLM_PORT: 3001,
-      WEB_PORT: 3000,
-      WOT_USERNAME: 'admin',
-      WOT_PASSWORD: '6VPXcB3q92rBLz/dZa1xDQOovbIlhn8Vqcgm8CDFT8M=',
-      WOT_TOKEN: '*@1234@token$',
-      MQTT_USER: 'smartbot',
-      MQTT_PASSWORD: 'S30s93!s6',
+    const config = {
+      ...window.APP_CONFIG,
       SCHEME: window.location.protocol === 'https:' ? 'wss' : 'ws',
       DEFAULT_PORT: window.location.protocol === 'https:' ? 8084 : 8083,
-      ION_ACCESS_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5MjI4ZGM3ZS01ZTM1LTQyMjQtYjhlYi1jNjg3ZGVlMjY1OGEiLCJpZCI6MjkzNDQyLCJpYXQiOjE3NDQ0NjgyMDN9.qw_8EL_Qt0l_TX8ffQzUh8VBIIJWQImN_ozOXaFXp7E'
     };
-
-    const config = window.APP_CONFIG;  </script>
+  </script>
 
   <link rel="stylesheet" href="/css/index_citybot.css">
 </head>
