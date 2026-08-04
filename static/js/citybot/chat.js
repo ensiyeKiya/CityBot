@@ -477,13 +477,13 @@
       const thinking = addMessage('Thinking…', false, true);
 
       try {
-        const userId = requireLoggedInUserId();
+        const userId = window.requireLoggedInUserId();
         
         const result = await llmThing.invokeAction('processConversation', {
           message: text,
           userId,
           sessionId: window.chatSessionId,
-          ...getLlmContextPayload()
+          ...window.getLlmContextPayload()
         });
         const actionResult = typeof result.value === 'function' ? await result.value() : result;
         
@@ -562,7 +562,7 @@
       const thinking = addMessage('🧠 Planning...', false, true);
 
       try {
-        const userId = requireLoggedInUserId();
+        const userId = window.requireLoggedInUserId();
 
         // Clear previous stream UI state
         window.activeStreamRequestId = null;
@@ -572,7 +572,7 @@
           message: text,
           userId,
           sessionId: window.chatSessionId,
-          ...getLlmContextPayload()
+          ...window.getLlmContextPayload()
         });
         const actionResult = typeof result.value === 'function' ? await result.value() : result;
 
@@ -843,6 +843,7 @@
       sendButton.disabled = false;
       micButton.disabled = false;
     }
+    window.unlockUI = unlockUI;
 
     // Utility function to log timing
     function logTiming(label, startTime, endTime) {
@@ -861,6 +862,7 @@
         .replace(/^# (.*$)/gim, '<h1>$1</h1>') // H1 headers
         .replace(/- (.*)/g, '• $1'); // Bullet points
     }
+    window.markdownToHtml = markdownToHtml;
 
     // Sanitize text for TTS - remove markdown formatting, emojis, and special characters
     function sanitizeTextForTTS(text) {
@@ -987,7 +989,7 @@
 
       const thinking = addMessage('🧠 Planning...', false, true);
 
-      try {        const userId = requireLoggedInUserId();
+      try {        const userId = window.requireLoggedInUserId();
 
         // Clear previous stream UI state
         window.activeStreamRequestId = null;
@@ -997,7 +999,7 @@
           message: txt,
           userId,
           sessionId: window.chatSessionId,
-          ...getLlmContextPayload()
+          ...window.getLlmContextPayload()
         });
         const actionResult = typeof result.value === 'function' ? await result.value() : result;
 
@@ -1222,8 +1224,8 @@
 
       return wrapper;
     }
+    window.buildFeedbackBar = buildFeedbackBar;
 
-/* ========================= 8. Chat History & New Chat =========================== */
 
     const historyPanel       = document.getElementById('historyPanel');
     const historySessionList = document.getElementById('historySessionList');

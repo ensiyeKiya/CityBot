@@ -4,10 +4,10 @@
  */
 import './cesium.js';
 import './state.js';
+import './chat.js';
 import './events.js';
 import './wot.js';
 import './bootstrap.js';
-import './chat.js';
 import './camera.js';
 import './auth.js';
 import './ready.js';

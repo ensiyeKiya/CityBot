@@ -44,6 +44,10 @@ window.lastCameraState = null;
       }
       return window.currentUserId;
     }
+
+    window.withUserId = withUserId;
+    window.getLlmContextPayload = getLlmContextPayload;
+    window.requireLoggedInUserId = requireLoggedInUserId;
     
     // Function to apply visualization styles from server-provided definition
     window.applyVisualizationStyle = function(styleDefinition, styleName) {      

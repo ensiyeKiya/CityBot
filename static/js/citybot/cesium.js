@@ -146,9 +146,9 @@ import { appConfig } from './config.js';
                 if (Object.keys(buildingData.coordinates).length === 0) {
                   delete buildingData.coordinates;                }
               }
-              window.llmSelectedBuilding = withUserId({ ...buildingData });
+              window.llmSelectedBuilding = window.withUserId({ ...buildingData });
               
-              window.thing.writeProperty('selectedBuildingState', withUserId(buildingData))
+              window.thing.writeProperty('selectedBuildingState', window.withUserId(buildingData))
                 .then(() => {                })
                 .catch(err => {
                   console.error('❌ Failed to write building selection:', err);
@@ -178,7 +178,7 @@ import { appConfig } from './config.js';
             window.selectedBuilding = null;            
             // Notify server that building has been deselected
             if (window.thing) {
-              window.llmSelectedBuilding = withUserId({
+              window.llmSelectedBuilding = window.withUserId({
                 gmlId: null,
                 class: null,
                 function: null,

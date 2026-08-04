@@ -88,7 +88,7 @@ window.subscribeToWoTEvents = async function() {
             const previousLength = window.streamAccumulatedText.length;
             window.streamAccumulatedText += payload.token;
             
-            window.streamMessageContentEl.innerHTML = markdownToHtml(window.streamAccumulatedText);
+            window.streamMessageContentEl.innerHTML = window.markdownToHtml(window.streamAccumulatedText);
             document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
           } else if (payload.isFinal) {
             window.conversationStreamStats.finalMessages++;
@@ -104,7 +104,7 @@ window.subscribeToWoTEvents = async function() {
                 const messageElement = window.addMessage('', false);
                 window.streamMessageContentEl = messageElement.querySelector('.message-content');
               }
-              window.streamMessageContentEl.innerHTML = markdownToHtml(payload.metadata.response);
+              window.streamMessageContentEl.innerHTML = window.markdownToHtml(payload.metadata.response);
             }
             
             // Add system information after the response
@@ -138,7 +138,7 @@ window.subscribeToWoTEvents = async function() {
             if (window.streamMessageContentEl && payload.requestId) {
               const botMsg = window.streamMessageContentEl.closest('.message');
               if (botMsg && !botMsg.querySelector('.feedback-bar')) {
-                botMsg.appendChild(buildFeedbackBar(payload.requestId));
+                botMsg.appendChild(window.buildFeedbackBar(payload.requestId));
               }
             }
 
@@ -174,18 +174,18 @@ window.subscribeToWoTEvents = async function() {
                     startListeningMode();
                   } else {
                     // Only unlock UI if we're not restarting
-                    unlockUI();
+                    window.unlockUI();
                   }
                 };
                 
                 await currentAudio.play();
                 state = 'SPEAKING';              } catch (err) {
                 console.error("🔇 Audio playback error:", err);
-                unlockUI();
+                window.unlockUI();
               }
             } else {
               // No TTS needed, reset UI immediately after streaming completes
-              unlockUI();
+              window.unlockUI();
             }
           }
         };
@@ -1164,7 +1164,7 @@ window.subscribeToWoTEvents = async function() {
         
         // Notify server that building has been deselected
         if (window.thing) {
-          window.llmSelectedBuilding = withUserId({
+          window.llmSelectedBuilding = window.withUserId({
             gmlId: null,
             class: null,
             function: null,
