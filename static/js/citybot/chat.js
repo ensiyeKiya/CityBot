@@ -498,14 +498,18 @@
           // Create a container for system messages
           const sysContainer = document.createElement('div');
           sysContainer.style.marginBottom = '12px';
-          
-          // Show additional info if available
-          if (actionResult.toolsUsed && actionResult.toolsUsed.length > 0) {
-            const toolsMsg = document.createElement('div');
-            toolsMsg.className = 'message system-message';
-            toolsMsg.innerHTML = `<strong>Tools:</strong> ${actionResult.toolsUsed.join(', ')}`;
-            sysContainer.appendChild(toolsMsg);
-          }
+
+          const toolsUsed = Array.isArray(actionResult.toolsUsed) ? actionResult.toolsUsed : [];
+          console.log('[CityBot][processConversation] toolsUsed=', toolsUsed.length ? toolsUsed : '(none)',
+            'processingTimeMs=', actionResult.processingTime, 'requestId=', actionResult.requestId);
+
+          // Always show tools status so missing tool calls are visible in the UI
+          const toolsMsg = document.createElement('div');
+          toolsMsg.className = 'message system-message';
+          toolsMsg.innerHTML = toolsUsed.length > 0
+            ? `<strong>Tools:</strong> ${toolsUsed.join(', ')}`
+            : `<strong>Tools:</strong> none`;
+          sysContainer.appendChild(toolsMsg);
           
           if (actionResult.processingTime) {
             const timeMsg = document.createElement('div');
@@ -583,7 +587,8 @@
 
         // Bind the request id as soon as we get it
         window.activeStreamRequestId = actionResult.requestId;
-        
+        console.log('[CityBot][stream] started requestId=', actionResult.requestId, 'message=', text);
+
         // Set flag for TTS handling after streaming completes
         if (useTTS) {
           window.shouldDoTTSAfterStream = true;
@@ -1010,7 +1015,8 @@
 
         // Bind the request id as soon as we get it
         window.activeStreamRequestId = actionResult.requestId;
-        
+        console.log('[CityBot][stream] started requestId=', actionResult.requestId, 'message=', txt);
+
       } catch (err) {
         thinking.remove();
         console.error('WoT streaming action error:', err);

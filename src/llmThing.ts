@@ -112,6 +112,19 @@ function getLastAssistantMessage(conversation: any[]): any | null {
  * When the last planning turn already returned a text answer with no tool calls,
  * reuse it and skip the extra final model call.
  */
+/** Truncate any value to a single-line preview for logs. */
+function logPreview(value: any, max = 300): string {
+  const s = typeof value === 'string' ? value : JSON.stringify(value);
+  if (s == null) return '';
+  const oneLine = s.replace(/\s+/g, ' ').trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+}
+
+/** Remove a leaked "[via tools: ...]" prefix the model sometimes copies into answers. */
+function stripLeakedToolMarker(content: string): string {
+  return String(content ?? '').replace(/^\[via tools:[^\]]*\]\s*/i, '').trim();
+}
+
 function getDirectPlanningAnswer(conversation: any[]): string | null {
   const lastAssistant = getLastAssistantMessage(conversation);
   if (!lastAssistant) return null;
@@ -616,22 +629,14 @@ async function main() {
 
   /**
    * Convert stored history entries into clean {role, content} messages for the
-   * model. Assistant turns that were fulfilled via tools get an explicit
-   * "[via tools: ...]" marker: without it, replayed history shows action
-   * requests being "completed" by plain text alone, which teaches the model
-   * to answer new action requests without calling any tool.
+   * model, stripping internal metadata (e.g. toolsUsed) and any leaked
+   * "[via tools: ...]" prefix before the API call.
    */
   function toModelMessages(history: any[]): any[] {
-    return history.map((message) => {
-      const toolsUsed: string[] = Array.isArray(message?.toolsUsed) ? message.toolsUsed : [];
-      if (message?.role === 'assistant' && toolsUsed.length > 0) {
-        return {
-          role: 'assistant',
-          content: `[via tools: ${[...new Set(toolsUsed)].join(', ')}] ${message.content}`
-        };
-      }
-      return { role: message.role, content: message.content };
-    });
+    return history.map((message) => ({
+      role: message.role,
+      content: stripLeakedToolMarker(String(message.content ?? ''))
+    }));
   }
 
   function trimConversationHistory(history: any[], maxMessages: number): any[] {
@@ -1065,6 +1070,13 @@ async function main() {
         { role: "user", content: message }
       ];
 
+      console.log(`📥 [${requestId}] processConversation user=${userId} session=${sessionId} message="${logPreview(message, 200)}"`);
+      console.log(`📥 [${requestId}] tools offered (${toolSpecs.length}): ${toolSpecs.map((t) => t.function.name).join(', ')}`);
+      console.log(`📥 [${requestId}] replayed history (${recentHistory.length} msgs):`);
+      recentHistory.forEach((m: any, i: number) => {
+        console.log(`   ${i + 1}. ${m.role}: "${logPreview(m.content, 160)}"`);
+      });
+
       // Timing breakdown
       const toolsUsed: string[] = [];
       let modelTimeMs = 0;
@@ -1094,6 +1106,14 @@ async function main() {
         modelCalls += 1;
 
         const planMsg = planningResponse.choices?.[0]?.message;
+        console.log(
+          `🧠 [${requestId}] planning turn ${planningTurns}/${maxPlanningTurns}: ${planningElapsedMs}ms, ` +
+          `finish_reason=${planningResponse.choices?.[0]?.finish_reason ?? 'unknown'}, tool_calls=${planMsg?.tool_calls?.length || 0}` +
+          (planMsg?.content ? `, content="${logPreview(planMsg.content, 200)}"` : ', content=<empty>')
+        );
+        if (!planMsg?.tool_calls?.length) {
+          console.warn(`⚠️ [${requestId}] model returned NO tool calls on turn ${planningTurns} — answering with text only`);
+        }
         const assistantMsg: any = { role: "assistant", content: planMsg?.content || "" };
         if (planMsg?.tool_calls && planMsg.tool_calls.length > 0) {
           assistantMsg.tool_calls = planMsg.tool_calls;
@@ -1109,11 +1129,13 @@ async function main() {
 
             try {
               const args = JSON.parse(toolCall.function?.arguments || '{}');
+              console.log(`🔧 [${requestId}] invoking ${toolName} args=${logPreview(args, 300)}`);
               const toolStart = Date.now();
               const result = await invokeDomainAction(toolName, { ...args, _userId: userId });
               const toolElapsed = Date.now() - toolStart;
               toolTimeMs += toolElapsed;
               const toolResult = typeof result?.value === 'function' ? await result.value() : result;
+              console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(toolResult, 300)}`);
 
               conversation.push({
                 role: 'tool',
@@ -1122,6 +1144,7 @@ async function main() {
                 content: JSON.stringify(toolResult)
               });
             } catch (err) {
+              console.error(`❌ [${requestId}] tool ${toolName} error:`, err);
               conversation.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
@@ -1140,7 +1163,9 @@ async function main() {
       let finalContent = getDirectPlanningAnswer(conversation);
       let finalReasoning: string | null = null;
 
-      if (finalContent) {      } else {
+      if (finalContent) {
+        console.log(`✅ [${requestId}] using direct planning answer (no separate final call), toolsUsed=[${toolsUsed.join(', ')}]`);
+      } else {
         // Tools ran or planning returned empty — generate final answer in a separate call
         const finalConversation = [
           ...conversation,
@@ -1168,6 +1193,13 @@ async function main() {
         const finalMessage = finalResponse.choices?.[0]?.message as any;
         finalContent = String(finalMessage?.content ?? '').trim();
         finalReasoning = finalMessage?.reasoning_content ?? null;
+      }
+      finalContent = stripLeakedToolMarker(finalContent || '');
+      if (toolsUsed.length === 0) {
+        console.warn(
+          `⚠️ [${requestId}] FINISHED WITH NO TOOLS — model answered in text only. ` +
+          `response="${logPreview(finalContent, 200)}"`
+        );
       }
       if (!finalContent) {
         const processingTime = Date.now() - startTime;
@@ -1281,6 +1313,14 @@ async function main() {
         ...recentHistory,
         { role: "user", content: message }
       ];
+
+      console.log(`📥 [${requestId}] processConversationStream user=${userId} session=${sessionId} message="${logPreview(message, 200)}"`);
+      console.log(`📥 [${requestId}] tools offered (${toolSpecs.length}): ${toolSpecs.map((t) => t.function.name).join(', ')}`);
+      console.log(`📥 [${requestId}] replayed history (${recentHistory.length} msgs):`);
+      recentHistory.forEach((m: any, i: number) => {
+        console.log(`   ${i + 1}. ${m.role}: "${logPreview(m.content, 160)}"`);
+      });
+
       // Fire-and-forget streaming task
       (async () => {
         try {          
@@ -1407,7 +1447,38 @@ async function main() {
             const planningElapsedMs = Date.now() - planningStartMs;
             const planMsg = planningResponse.choices[0].message;
             const toolCallsCount = planMsg.tool_calls?.length || 0;
-            const tokensUsed = planningResponse.usage?.total_tokens || 'N/A';            if (toolCallsCount > 0) {              planMsg.tool_calls?.forEach((tc: any, idx: number) => {              });
+            const tokensUsed = planningResponse.usage?.total_tokens || 'N/A';
+            const finishReason = planningResponse.choices[0].finish_reason ?? 'unknown';
+            console.log(
+              `🧠 [${requestId}] planning turn ${planningTurn}/${maxPlanningTurns}: ${planningElapsedMs}ms, tokens=${tokensUsed}, finish_reason=${finishReason}, tool_calls=${toolCallsCount}` +
+              (planMsg.content ? `, content="${logPreview(planMsg.content, 200)}"` : ', content=<empty>')
+            );
+            if (toolCallsCount > 0) {
+              planMsg.tool_calls?.forEach((tc: any, idx: number) => {
+                console.log(`   ↳ tool_call ${idx + 1}: ${tc.function?.name}(${logPreview(tc.function?.arguments, 200)})`);
+              });
+              emitLLMEvent(userId, 'conversationStream', {
+                requestId,
+                token: '',
+                isFinal: false,
+                metadata: {
+                  planningUpdate: `🔧 Model requested ${toolCallsCount} tool call(s): ${planMsg.tool_calls.map((t: any) => t.function?.name).join(', ')}`,
+                  currentTurn: planningTurn,
+                  toolCallsRequested: planMsg.tool_calls.map((t: any) => t.function?.name)
+                }
+              });
+            } else {
+              console.warn(`⚠️ [${requestId}] model returned NO tool calls on turn ${planningTurn} — answering with text only`);
+              emitLLMEvent(userId, 'conversationStream', {
+                requestId,
+                token: '',
+                isFinal: false,
+                metadata: {
+                  planningUpdate: `⚠️ Planning turn ${planningTurn}: model returned NO tool calls (text-only)`,
+                  currentTurn: planningTurn,
+                  toolCallsRequested: []
+                }
+              });
             }
 
             // Detect repeated plans that could indicate a loop
@@ -1459,8 +1530,9 @@ async function main() {
               const args = JSON.parse(toolCall.function.arguments || '{}');
               // Inject caller identity so the smartbot can scope events to this user
               const enrichedArgs = { ...args, _userId: userId };
-              
-              // Log tool call details              
+
+              console.log(`🔧 [${requestId}] invoking ${toolName} args=${logPreview(args, 300)}`);
+
               // Emit tool execution update
               emitLLMEvent(userId, 'conversationStream', { 
                 requestId, 
@@ -1476,8 +1548,9 @@ async function main() {
               const result = await invokeDomainAction(toolName, enrichedArgs);
                   const toolElapsed = Date.now() - toolStart;
                   const toolResult = typeof result?.value === 'function' ? await result.value() : result;
-                  
-                  // Log tool result                  
+
+                  console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(toolResult, 300)}`);
+
                   // Add tool result to conversation
                   conversation.push({
                     role: 'tool',
@@ -1496,8 +1569,8 @@ async function main() {
                   });
                   
                 } catch (err) {
-                  console.error(`  ❌ Tool ${toolName} error:`, err);
-                  console.error(`  ❌ Error details:`, {
+                  console.error(`❌ [${requestId}] tool ${toolName} error:`, err);
+                  console.error(`❌ [${requestId}] error details:`, {
                     message: err instanceof Error ? err.message : String(err),
                     stack: err instanceof Error ? err.stack : 'No stack'
                   });
@@ -1526,20 +1599,28 @@ async function main() {
             }
           }
 
-          if (planningTurn >= maxPlanningTurns) {          }
+          if (planningTurn >= maxPlanningTurns) {
+            console.warn(`⚠️ [${requestId}] hit max planning turns (${maxPlanningTurns}) without a final answer`);
+          }
 
           const directPlanningAnswer = getDirectPlanningAnswer(conversation);
           let finalContent = '';
 
           if (directPlanningAnswer) {
-            finalContent = directPlanningAnswer;            emitLLMEvent(userId, 'conversationStream', {
+            finalContent = stripLeakedToolMarker(directPlanningAnswer);
+            console.log(
+              `✅ [${requestId}] using direct planning answer (no separate final call), ` +
+              `toolsUsed=${toolsUsed.length ? toolsUsed.join(', ') : '(none)'}`
+            );
+            emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
               isFinal: false,
               metadata: {
                 planningUpdate: '✅ Planning complete, using direct answer...',
                 planningComplete: true,
-                skippedFinalCall: true
+                skippedFinalCall: true,
+                toolsUsedSoFar: [...toolsUsed]
               }
             });
             emitLLMEvent(userId, 'conversationStream', { requestId, token: finalContent, isFinal: false });
@@ -1628,12 +1709,23 @@ async function main() {
                 finalContent = 'I successfully executed your request (loaded the tiles), though I had trouble connecting to the response generator.';
               }
             }
-
-            finalContent = finalContent.trim();
           }
+
+          finalContent = stripLeakedToolMarker(finalContent.trim());
 
           const processingTime = Date.now() - startTime;
           const processingTimeSeconds = (processingTime / 1000).toFixed(2);
+          if (toolsUsed.length === 0) {
+            console.warn(
+              `⚠️ [${requestId}] FINISHED WITH NO TOOLS — model answered in text only. ` +
+              `planningTurns=${planningTurn}, response="${logPreview(finalContent, 200)}"`
+            );
+          }
+          console.log(
+            `📤 [${requestId}] done in ${processingTimeSeconds}s, planningTurns=${planningTurn}, ` +
+            `toolsUsed=${toolsUsed.length ? toolsUsed.join(', ') : '(none)'}, ` +
+            `response="${logPreview(finalContent, 200)}"`
+          );
           // Emit final metadata and save conversation history
           emitLLMEvent(userId, 'conversationStream', { 
             requestId, 
@@ -1642,6 +1734,7 @@ async function main() {
             metadata: { 
               response: finalContent, 
               toolsUsed, 
+              toolCount: toolsUsed.length,
               processingTime: processingTime,
               processingTimeSeconds: processingTimeSeconds
             } 

@@ -43,7 +43,31 @@ window.subscribeToWoTEvents = async function() {
           }
           
           // Allow auto-generated building analysis through even if it doesn't match activeStreamRequestId
-          if (payload.requestId !== window.activeStreamRequestId && !isAutoBuildingAnalysis) {            return;
+          if (payload.requestId !== window.activeStreamRequestId && !isAutoBuildingAnalysis) {
+            console.log('[CityBot][stream] ignored (requestId mismatch)', {
+              transport,
+              payloadRequestId: payload.requestId,
+              activeStreamRequestId: window.activeStreamRequestId,
+              isFinal: payload.isFinal,
+              planningUpdate: payload.metadata?.planningUpdate || null
+            });
+            return;
+          }
+
+          if (payload.metadata?.planningUpdate || payload.isFinal) {
+            console.log('[CityBot][stream]', {
+              transport,
+              requestId: payload.requestId,
+              isFinal: !!payload.isFinal,
+              planningUpdate: payload.metadata?.planningUpdate || null,
+              toolsUsed: payload.metadata?.toolsUsed ?? null,
+              toolCount: payload.metadata?.toolCount ?? (payload.metadata?.toolsUsed?.length ?? null),
+              processingTimeSeconds: payload.metadata?.processingTimeSeconds ?? null,
+              responsePreview: payload.metadata?.response
+                ? String(payload.metadata.response).slice(0, 160)
+                : null,
+              tokenLen: payload.token ? String(payload.token).length : 0
+            });
           }
           
           // If this is auto-building analysis, switch to this requestId
@@ -109,17 +133,21 @@ window.subscribeToWoTEvents = async function() {
             
             // Add system information after the response
             if (payload.metadata) {
+              const toolsUsed = Array.isArray(payload.metadata.toolsUsed) ? payload.metadata.toolsUsed : [];
+              console.log('[CityBot][stream] final toolsUsed=', toolsUsed.length ? toolsUsed : '(none)',
+                'processingTime=', payload.metadata.processingTimeSeconds);
+
               // Create a container for system messages
               const sysContainer = document.createElement('div');
               sysContainer.style.marginBottom = '12px';
-              
-              // Show tools used if available
-              if (payload.metadata.toolsUsed && payload.metadata.toolsUsed.length > 0) {
-                const toolsMsg = document.createElement('div');
-                toolsMsg.className = 'message system-message';
-                toolsMsg.innerHTML = `<strong>Tools:</strong> ${payload.metadata.toolsUsed.join(', ')}`;
-                sysContainer.appendChild(toolsMsg);
-              }
+
+              // Always show tools status so missing tool calls are visible in the UI
+              const toolsMsg = document.createElement('div');
+              toolsMsg.className = 'message system-message';
+              toolsMsg.innerHTML = toolsUsed.length > 0
+                ? `<strong>Tools:</strong> ${toolsUsed.join(', ')}`
+                : `<strong>Tools:</strong> none`;
+              sysContainer.appendChild(toolsMsg);
               
               // Show processing time if available
               if (payload.metadata.processingTimeSeconds) {
