@@ -231,6 +231,14 @@ const max_tokens = Number(process.env.MAX_TOKENS);
  * This service consumes the main smartbot WoT thing and provides AI conversation capabilities
  */
 async function main() {
+  const dbConnected = await initializeDatabase();
+  if (!dbConnected) {
+    throw new Error(
+      'PostgreSQL is required for sessions and authentication. ' +
+      'Ensure the database is running and DB_HOST, DB_PORT, DB_NAME, DB_USER, and DB_PASSWORD are set correctly.'
+    );
+  }
+
   const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
   // Create servient for both client and server functionality
@@ -1940,38 +1948,21 @@ async function main() {
     throw error;
   }
   
-  // Initialize database connection
-  const dbConnected = await initializeDatabase();
-  if (!dbConnected) {
-    console.error('⚠️ Database connection failed. Authentication features will not work properly.');
-  }
-  
-  // // Initialize default admin user
-  // await initializeDefaultUser();
-  
   // ------------------- Web Server Setup -------------------
   const app = express();
-  
-  // Trust proxy - required for secure cookies behind Nginx reverse proxy
+ 
   app.set('trust proxy', 1);
-  
-  // Session configuration — PostgreSQL store (survives restarts, safe for production)
+
   const sessionSecret = process.env.SESSION_SECRET?.trim();
   if (!sessionSecret) {
     throw new Error('SESSION_SECRET environment variable is required. Set it in .env before starting the server.');
   }
   const PgSession = connectPgSimple(session);
-  const sessionStore = dbConnected
-    ? new PgSession({
-        pool: getDatabaseClient(),
-        tableName: 'session',
-        pruneSessionInterval: 60 * 15 // drop expired rows every 15 minutes
-      })
-    : undefined;
-
-  if (!dbConnected) {
-    console.error('❌ Session store unavailable — database not connected');
-  }
+  const sessionStore = new PgSession({
+    pool: getDatabaseClient(),
+    tableName: 'session',
+    pruneSessionInterval: 60 * 15 // drop expired rows every 15 minutes
+  });
 
   app.use(cookieParser());
   app.use(session({
