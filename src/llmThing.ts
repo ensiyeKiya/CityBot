@@ -2011,8 +2011,14 @@ async function main() {
 
   app.use(express.raw({ type: 'audio/webm', limit: '25mb' }));
 
+  const corsOrigin = process.env.CORS_ORIGIN?.trim()
+    || (process.env.SERVER_NAME ? `https://${process.env.SERVER_NAME}` : undefined);
+  if (!corsOrigin) {
+    throw new Error('CORS_ORIGIN or SERVER_NAME environment variable is required.');
+  }
+
   app.use(cors({
-    origin: "https://chatbot.gate-ai.eu",
+    origin: corsOrigin,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true
