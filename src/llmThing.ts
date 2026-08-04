@@ -628,15 +628,44 @@ async function main() {
   }
 
   /**
-   * Convert stored history entries into clean {role, content} messages for the
-   * model, stripping internal metadata (e.g. toolsUsed) and any leaked
-   * "[via tools: ...]" prefix before the API call.
+   * Convert stored history entries into {role, content} messages for the model.
+   *
+   * For assistant turns that were completed via tool calls, synthesise a
+   * structurally valid tool-call sequence:
+   *   1. assistant  { tool_calls: [{ name, arguments: '{}' }] }
+   *   2. tool       { result: '{"success":true}' }  (one per tool)
+   *   3. assistant  { content: final summary text }
+   *
+   * Without this, the replayed history shows action requests "answered" by
+   * plain prose, which teaches the model to skip tool calls for similar
+   * requests in the current turn.
    */
   function toModelMessages(history: any[]): any[] {
-    return history.map((message) => ({
-      role: message.role,
-      content: stripLeakedToolMarker(String(message.content ?? ''))
-    }));
+    const result: any[] = [];
+    history.forEach((message, idx) => {
+      const toolsUsed: string[] = Array.isArray(message?.toolsUsed) ? message.toolsUsed : [];
+      if (message?.role === 'assistant' && toolsUsed.length > 0) {
+        // Build fake but structurally correct tool-call messages
+        const toolCalls = toolsUsed.map((name, i) => ({
+          id: `h${idx}_${i}`,
+          type: 'function',
+          function: { name, arguments: '{}' }
+        }));
+        result.push({ role: 'assistant', content: '', tool_calls: toolCalls });
+        toolsUsed.forEach((name, i) => {
+          result.push({
+            role: 'tool',
+            tool_call_id: `h${idx}_${i}`,
+            name,
+            content: '{"success":true}'
+          });
+        });
+        result.push({ role: 'assistant', content: stripLeakedToolMarker(String(message.content ?? '')) });
+      } else {
+        result.push({ role: message.role, content: stripLeakedToolMarker(String(message.content ?? '')) });
+      }
+    });
+    return result;
   }
 
   function trimConversationHistory(history: any[], maxMessages: number): any[] {
@@ -1074,7 +1103,9 @@ async function main() {
       console.log(`📥 [${requestId}] tools offered (${toolSpecs.length}): ${toolSpecs.map((t) => t.function.name).join(', ')}`);
       console.log(`📥 [${requestId}] replayed history (${recentHistory.length} msgs):`);
       recentHistory.forEach((m: any, i: number) => {
-        console.log(`   ${i + 1}. ${m.role}: "${logPreview(m.content, 160)}"`);
+        const extra = m.tool_calls ? ` [tool_calls: ${m.tool_calls.map((t: any) => t.function?.name).join(', ')}]` : '';
+        const extra2 = m.tool_call_id ? ` [tool_result for: ${m.name ?? m.tool_call_id}]` : '';
+        console.log(`   ${i + 1}. ${m.role}${extra}${extra2}: "${logPreview(m.content, 120)}"`);
       });
 
       // Timing breakdown
@@ -1318,7 +1349,9 @@ async function main() {
       console.log(`📥 [${requestId}] tools offered (${toolSpecs.length}): ${toolSpecs.map((t) => t.function.name).join(', ')}`);
       console.log(`📥 [${requestId}] replayed history (${recentHistory.length} msgs):`);
       recentHistory.forEach((m: any, i: number) => {
-        console.log(`   ${i + 1}. ${m.role}: "${logPreview(m.content, 160)}"`);
+        const extra = m.tool_calls ? ` [tool_calls: ${m.tool_calls.map((t: any) => t.function?.name).join(', ')}]` : '';
+        const extra2 = m.tool_call_id ? ` [tool_result for: ${m.name ?? m.tool_call_id}]` : '';
+        console.log(`   ${i + 1}. ${m.role}${extra}${extra2}: "${logPreview(m.content, 120)}"`);
       });
 
       // Fire-and-forget streaming task
