@@ -226,22 +226,37 @@ window.subscribeToWoTEvents = async function() {
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
 
           try {
+            const tilesAckBase = {
+              requestId: payload.requestId || null,
+              toolCallId: payload.toolCallId || null,
+              kind: 'tileset',
+              details: { action: payload.action, id: payload.id, name: payload.name }
+            };
+
             if (payload.action === 'remove') {              const primitives = window.viewer.scene.primitives;
+              let removed = false;
               for (let i = primitives.length - 1; i >= 0; i--) {
                 const primitive = primitives.get(i);
                 if (primitive.id === payload.id) {
                   primitives.remove(primitive);
-                  // window.addMessage(`Removed tileset: ${payload.id}`);                  
+                  removed = true;
                   // Clear Sofia tileset reference and restore Google tileset
                   if (payload.id === 'sofia-buildings-tileset') {
                     window.sofiaTileset = null;                    
                     if (window.googleTileset) {
-                      window.googleTileset.show = true;                      // window.addMessage('Restored Google 3D Tiles');
+                      window.googleTileset.show = true;
                     }
                   }
                   break;
                 }
               }
+              window.reportUiStatus({
+                ...tilesAckBase,
+                status: 'applied',
+                summary: removed
+                  ? `Removed tileset from map: ${payload.name || payload.id}`
+                  : `Tileset remove requested (not found on map): ${payload.id}`
+              });
             } else if (payload.action === 'add') {
               
               // Hide Google tileset when loading Sofia tiles
@@ -265,18 +280,40 @@ window.subscribeToWoTEvents = async function() {
                   if (payload.id === 'sofia-buildings-tileset') {
                     window.sofiaTileset = tileset;                    
                     // Apply any pending visualization style
-                    if (window.pendingVisualizationStyle) {                      window.applyVisualizationStyle(
-                        window.pendingVisualizationStyle.styleDefinition, 
-                        window.pendingVisualizationStyle.styleName
-                      );
+                    if (window.pendingVisualizationStyle) {
+                      const pending = window.pendingVisualizationStyle;
+                      const ok = window.applyVisualizationStyle(pending.styleDefinition, pending.styleName);
                       window.pendingVisualizationStyle = null;
+                      // Ack the pending style apply (may have different toolCallId)
+                      if (pending.toolCallId || pending.requestId) {
+                        window.reportUiStatus({
+                          requestId: pending.requestId || null,
+                          toolCallId: pending.toolCallId || null,
+                          kind: 'visualization',
+                          status: ok ? 'applied' : 'failed',
+                          summary: ok
+                            ? `Map style applied after tiles load: ${pending.styleName}`
+                            : `Failed to apply queued style after tiles load: ${pending.styleName}`,
+                          details: { style: pending.style, styleName: pending.styleName }
+                        });
+                      }
                     }
                   }
                   
-                  // window.addMessage(`Loaded 3D tileset: ${payload.name || payload.id}`);
-                  await window.viewer.flyTo(tileset);                  
+                  await window.viewer.flyTo(tileset);
+                  window.reportUiStatus({
+                    ...tilesAckBase,
+                    status: 'applied',
+                    summary: `3D tiles loaded on map: ${payload.name || payload.id}`,
+                    details: { ...tilesAckBase.details, loadMs: Math.round(tilesetLoadTime) }
+                  });
                 } catch (tilesetError) {
                   console.error('❌ Failed to load tileset:', tilesetError);
+                  window.reportUiStatus({
+                    ...tilesAckBase,
+                    status: 'failed',
+                    summary: `Failed to load tileset on map: ${tilesetError.message || String(tilesetError)}`
+                  });
                   // window.addMessage(`Error loading tileset: ${tilesetError.message}`);
                 }
               })();
@@ -420,19 +457,44 @@ window.subscribeToWoTEvents = async function() {
             return;
           }
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
+
+          const styleName = payload.styleName || payload.style;
+          const ackBase = {
+            requestId: payload.requestId || null,
+            toolCallId: payload.toolCallId || null,
+            kind: 'visualization',
+            details: { style: payload.style, styleName }
+          };
           
           try {
             // Apply the visualization style using server-provided definition
             if (window.sofiaTileset && window.applyVisualizationStyle) {
-              window.applyVisualizationStyle(payload.styleDefinition, payload.styleName || payload.style);
+              const ok = window.applyVisualizationStyle(payload.styleDefinition, styleName);
+              window.reportUiStatus({
+                ...ackBase,
+                status: ok ? 'applied' : 'failed',
+                summary: ok
+                  ? `Map style applied on screen: ${styleName}`
+                  : `Failed to apply map style on screen: ${styleName}`
+              });
             } else {
-              // Store the pending style with its definition to apply when Sofia tileset loads
+              // Queue style until Sofia tiles load; ack is sent when it is actually applied
               window.pendingVisualizationStyle = {
                 styleDefinition: payload.styleDefinition,
-                styleName: payload.styleName || payload.style
-              };            }
+                styleName,
+                requestId: payload.requestId || null,
+                toolCallId: payload.toolCallId || null,
+                style: payload.style
+              };
+              console.log('[CityBot] visualization style queued until tiles load:', styleName);
+            }
           } catch (error) {
             console.error(`❌ Error applying visualization style:`, error);
+            window.reportUiStatus({
+              ...ackBase,
+              status: 'failed',
+              summary: `Error applying map style: ${error.message || String(error)}`
+            });
           }
         };
 

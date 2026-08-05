@@ -391,8 +391,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           properties: {
             style: {
               type: "string",
-              enum: ["none", "walkability", "height", "uhi4", "uhi9", "energyltb", "energyutb", "class"],
-              description: "The visualization style ID being applied"
+              description: "The visualization style ID being applied (e.g. walkability, custom_filter, none)"
             },
             styleName: {
               type: "string",
@@ -969,6 +968,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
           style: input.style,
           styleName: styleName,
           styleDefinition: styleDefinition,
@@ -1012,6 +1013,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         try {
           await emitEvent('visualizationStyleChanged', {
             userId,
+            requestId: input?._requestId ?? null,
+            toolCallId: input?._toolCallId ?? null,
             style: 'none',
             styleName: 'Default Style',
             styleDefinition: { show: true },
@@ -1127,6 +1130,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
           style: 'custom_filter',
           styleName: `Filter: ${styleLabel}${andLabel}`,
           styleDefinition: filterStyleDefinition,
@@ -1177,6 +1182,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       const tilesetData = {
         action: 'add',
         userId,
+        requestId: input?._requestId ?? null,
+        toolCallId: input?._toolCallId ?? null,
         id: SOFIA_TILESET.id,
         url: SOFIA_TILESET.url,
         name: SOFIA_TILESET.name,
@@ -1223,6 +1230,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         await emitEvent('tilesetChanged', {
           action: 'remove',
           userId,
+          requestId: removeInput?._requestId ?? null,
+          toolCallId: removeInput?._toolCallId ?? null,
           id: SOFIA_TILESET_ID,
           timestamp: new Date().toISOString()
         });      } catch (error) {

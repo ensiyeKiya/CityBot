@@ -48,23 +48,57 @@ window.lastCameraState = null;
     window.withUserId = withUserId;
     window.getLlmContextPayload = getLlmContextPayload;
     window.requireLoggedInUserId = requireLoggedInUserId;
+
+    /**
+     * Tell the LLM service whether a map UI change was actually applied.
+     * Correlates via toolCallId so the planner can ground its final answer.
+     */
+    window.reportUiStatus = async function(report) {
+      try {
+        if (!window.llmThing) {
+          console.warn('[CityBot] reportUiStatus skipped — llmThing not ready', report);
+          return;
+        }
+        const userId = window.currentUserId;
+        if (userId == null) {
+          console.warn('[CityBot] reportUiStatus skipped — no userId', report);
+          return;
+        }
+        const payload = {
+          userId,
+          requestId: report.requestId || null,
+          toolCallId: report.toolCallId || null,
+          kind: report.kind,
+          status: report.status,
+          summary: report.summary,
+          details: report.details || undefined
+        };
+        console.log('[CityBot] reportUiStatus', payload);
+        const result = await window.llmThing.invokeAction('reportUiStatus', payload);
+        if (typeof result?.value === 'function') await result.value();
+      } catch (err) {
+        console.error('[CityBot] reportUiStatus failed:', err);
+      }
+    };
     
-    // Function to apply visualization styles from server-provided definition
+    // Function to apply visualization styles from server-provided definition.
+    // Returns true on success, false on failure.
     window.applyVisualizationStyle = function(styleDefinition, styleName) {      
       if (!window.sofiaTileset) {
         console.error('❌ Sofia tileset not loaded yet');
-        return;
+        return false;
       }
       
       if (!styleDefinition) {
         console.error('❌ No style definition provided');
-        return;
+        return false;
       }
       
       try {
         // Create Cesium 3D tile style from server-provided definition
         const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
         window.sofiaTileset.style = cesiumStyle;
+        return true;
       } catch (error) {
         console.error(`❌ Failed to apply style ${styleName}:`, error);
         console.error(`❌ Error details:`, {
@@ -72,6 +106,7 @@ window.lastCameraState = null;
           stack: error.stack,
           styleDefinition: styleDefinition
         });
+        return false;
       }
     };
     

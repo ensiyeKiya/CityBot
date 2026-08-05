@@ -987,9 +987,138 @@ async function main() {
           contentType: 'application/json',
           op: ['invokeaction']
         }]
+      },
+      reportUiStatus: {
+        title: 'Report UI Status',
+        description: 'Browser reports that a map UI change (tiles/style/filter) was applied or failed. Used so the LLM final answer reflects the real UI state.',
+        input: {
+          type: 'object',
+          properties: {
+            userId: { type: 'number' },
+            requestId: { type: 'string', description: 'Conversation request id that triggered the change' },
+            toolCallId: { type: 'string', description: 'Tool call id that triggered the change' },
+            kind: {
+              type: 'string',
+              enum: ['tileset', 'visualization', 'camera', 'other'],
+              description: 'Category of UI change'
+            },
+            status: {
+              type: 'string',
+              enum: ['applied', 'failed', 'pending'],
+              description: 'Whether the UI successfully applied the change'
+            },
+            summary: {
+              type: 'string',
+              description: 'Short human-readable status for the LLM final answer'
+            },
+            details: {
+              type: 'object',
+              description: 'Optional structured details (style name, tileset id, error, …)'
+            }
+          },
+          required: ['userId', 'kind', 'status', 'summary']
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' }
+          }
+        },
+        forms: [{
+          href: `https://${process.env.SERVER_NAME}/llm/actions/reportUiStatus`,
+          contentType: 'application/json',
+          op: ['invokeaction']
+        }]
       }
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // UI apply-status waiters: frontend acks after Cesium applies a change so the
+  // final answer can be grounded in what the user actually sees.
+  // ---------------------------------------------------------------------------
+  type UiStatusReport = {
+    userId: number;
+    requestId?: string;
+    toolCallId?: string;
+    kind: string;
+    status: 'applied' | 'failed' | 'pending';
+    summary: string;
+    details?: any;
+    timestamp: string;
+  };
+
+  const UI_ACK_TOOLS = new Set(['filterBuildings', 'setVisualizationStyle', 'loadTiles', 'removeTiles']);
+  const uiStatusWaiters = new Map<string, {
+    resolve: (report: UiStatusReport) => void;
+    timer: NodeJS.Timeout;
+  }>();
+  // Reports that arrived before a waiter was registered (race with fast clients)
+  const earlyUiStatusReports = new Map<string, UiStatusReport>();
+
+  function waitForUiStatus(toolCallId: string, timeoutMs = 3000): Promise<UiStatusReport | null> {
+    const early = earlyUiStatusReports.get(toolCallId);
+    if (early) {
+      earlyUiStatusReports.delete(toolCallId);
+      return Promise.resolve(early);
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        uiStatusWaiters.delete(toolCallId);
+        resolve(null);
+      }, timeoutMs);
+      uiStatusWaiters.set(toolCallId, {
+        resolve: (report) => {
+          clearTimeout(timer);
+          uiStatusWaiters.delete(toolCallId);
+          resolve(report);
+        },
+        timer
+      });
+    });
+  }
+
+  function resolveUiStatus(report: UiStatusReport): void {
+    const key = report.toolCallId;
+    if (!key) return;
+    const waiter = uiStatusWaiters.get(key);
+    if (waiter) {
+      waiter.resolve(report);
+    } else {
+      earlyUiStatusReports.set(key, report);
+      // Drop stale early reports after 15s
+      setTimeout(() => {
+        if (earlyUiStatusReports.get(key) === report) earlyUiStatusReports.delete(key);
+      }, 15000);
+    }
+  }
+
+  async function enrichToolResultWithUiStatus(
+    toolName: string,
+    toolCallId: string | undefined,
+    toolResult: any,
+    requestId: string
+  ): Promise<any> {
+    if (!toolCallId || !UI_ACK_TOOLS.has(toolName) || toolResult?.error) {
+      return toolResult;
+    }
+    // loadTiles can take longer (network fetch of Cesium tileset)
+    const timeoutMs = toolName === 'loadTiles' ? 15000 : 5000;
+    console.log(`⏳ [${requestId}] waiting up to ${timeoutMs}ms for UI ack of ${toolName} (toolCallId=${toolCallId})`);
+    const uiStatus = await waitForUiStatus(toolCallId, timeoutMs);
+    if (uiStatus) {
+      console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
+      return { ...toolResult, uiStatus };
+    }
+    console.warn(`⚠️ [${requestId}] UI ack timeout for ${toolName}`);
+    return {
+      ...toolResult,
+      uiStatus: {
+        status: 'timeout',
+        summary: 'Server emitted the change, but the browser did not confirm it was applied within 3s'
+      }
+    };
+  }
 
   // Per-user MQTT client — publishes LLM events and subscribes to domain map/building events
   let llmMqttClient: any = null;
@@ -1162,11 +1291,17 @@ async function main() {
               const args = JSON.parse(toolCall.function?.arguments || '{}');
               console.log(`🔧 [${requestId}] invoking ${toolName} args=${logPreview(args, 300)}`);
               const toolStart = Date.now();
-              const result = await invokeDomainAction(toolName, { ...args, _userId: userId });
+              const result = await invokeDomainAction(toolName, {
+                ...args,
+                _userId: userId,
+                _requestId: requestId,
+                _toolCallId: toolCall.id
+              });
               const toolElapsed = Date.now() - toolStart;
               toolTimeMs += toolElapsed;
-              const toolResult = typeof result?.value === 'function' ? await result.value() : result;
-              console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(toolResult, 300)}`);
+              const rawResult = typeof result?.value === 'function' ? await result.value() : result;
+              console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(rawResult, 300)}`);
+              const toolResult = await enrichToolResultWithUiStatus(toolName, toolCall.id, rawResult, requestId);
 
               conversation.push({
                 role: 'tool',
@@ -1202,7 +1337,7 @@ async function main() {
           ...conversation,
           {
             role: 'system',
-            content: 'Now provide your final answer to the user. Do not use any tools. Give a clear, natural response based on the tool results you already have.'
+            content: 'Now provide your final answer to the user. Do not use any tools. Base your answer on the tool results, especially any uiStatus field (applied/failed/timeout) which reflects what the browser actually showed on the map.'
           }
         ];
 
@@ -1561,8 +1696,13 @@ async function main() {
                 
                 try {
               const args = JSON.parse(toolCall.function.arguments || '{}');
-              // Inject caller identity so the smartbot can scope events to this user
-              const enrichedArgs = { ...args, _userId: userId };
+              // Inject caller identity + correlation ids so the browser can ack UI apply
+              const enrichedArgs = {
+                ...args,
+                _userId: userId,
+                _requestId: requestId,
+                _toolCallId: toolCall.id
+              };
 
               console.log(`🔧 [${requestId}] invoking ${toolName} args=${logPreview(args, 300)}`);
 
@@ -1580,11 +1720,23 @@ async function main() {
               const toolStart = Date.now();
               const result = await invokeDomainAction(toolName, enrichedArgs);
                   const toolElapsed = Date.now() - toolStart;
-                  const toolResult = typeof result?.value === 'function' ? await result.value() : result;
+                  const rawResult = typeof result?.value === 'function' ? await result.value() : result;
 
-                  console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(toolResult, 300)}`);
+                  console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(rawResult, 300)}`);
+                  if (UI_ACK_TOOLS.has(toolName) && !rawResult?.error) {
+                    emitLLMEvent(userId, 'conversationStream', {
+                      requestId,
+                      token: '',
+                      isFinal: false,
+                      metadata: {
+                        planningUpdate: `⏳ Waiting for UI to apply ${toolName}...`,
+                        toolExecution: toolName
+                      }
+                    });
+                  }
+                  const toolResult = await enrichToolResultWithUiStatus(toolName, toolCall.id, rawResult, requestId);
 
-                  // Add tool result to conversation
+                  // Add tool result to conversation (includes uiStatus when available)
                   conversation.push({
                     role: 'tool',
                     tool_call_id: toolCall.id,
@@ -1679,7 +1831,7 @@ async function main() {
                 ...conversation,
                 {
                   role: 'system',
-                  content: 'Now provide your final answer to the user. Do not use any tools. Give a clear, natural response based on the tool results you already have, and offer helpful follow-up suggestions.'
+                  content: 'Now provide your final answer to the user. Do not use any tools. Base your answer on the tool results, especially any uiStatus field (applied/failed/timeout) which reflects what the browser actually showed on the map. Offer helpful follow-up suggestions.'
                 }
               ];
 
@@ -2034,6 +2186,45 @@ async function main() {
       };
     }
   };
+
+  // Browser → LLM: confirm that a map UI change was actually applied (or failed)
+  llmThing.setActionHandler('reportUiStatus', async (params: any) => {
+    try {
+      let input: any;
+      if (params && typeof params.value === 'function') {
+        input = await params.value();
+      } else {
+        input = params || {};
+      }
+
+      const userId = parseUserId(input?.userId);
+      if (userId == null) return { success: false, error: 'userId is required' };
+      if (!input?.kind || !input?.status || !input?.summary) {
+        return { success: false, error: 'kind, status, and summary are required' };
+      }
+
+      const report: UiStatusReport = {
+        userId,
+        requestId: input.requestId ? String(input.requestId) : undefined,
+        toolCallId: input.toolCallId ? String(input.toolCallId) : undefined,
+        kind: String(input.kind),
+        status: input.status,
+        summary: String(input.summary),
+        details: input.details,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log(
+        `🖥️  UI status: user=${userId} kind=${report.kind} status=${report.status} ` +
+        `toolCallId=${report.toolCallId ?? '-'} — ${report.summary}`
+      );
+      resolveUiStatus(report);
+      return { success: true };
+    } catch (err) {
+      console.error('reportUiStatus error:', err);
+      return { success: false, error: String(err) };
+    }
+  });
 
   // Text-to-Speech action handler
   llmThing.setActionHandler('textToSpeech', async (params: any) => {
