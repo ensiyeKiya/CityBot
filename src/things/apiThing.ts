@@ -125,8 +125,8 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             sensorCount: { type: "number", description: "Number of sensors affected" },
             show: { type: "boolean", description: "Whether sensors should be visible" },
             userId: { type: "string" },
-            requestId: { type: ["string", "null"] },
-            toolCallId: { type: ["string", "null"] },
+            requestId: { oneOf: [{ type: "string" }, { type: "null" }] },
+            toolCallId: { oneOf: [{ type: "string" }, { type: "null" }] },
             timestamp: { type: "string", format: "date-time" }
           },
           required: ["action"]

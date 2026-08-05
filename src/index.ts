@@ -90,10 +90,16 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  // Expose the four Domain Things
+  // Expose the four Domain Things (order matters for debugging: a failure here
+  // leaves earlier Things exposed but /api missing — which breaks the LLM host).
   await exposeCityModelThing(WoT);
   await exposeAirQualityThing(WoT, { availableCities, availableModels, horizonSummary, maxPredictionHours });
-  await exposeApiThing(WoT);
+  try {
+    await exposeApiThing(WoT);
+  } catch (error) {
+    console.error('❌ Failed to expose api Thing (sensor actions / weather / geocoding):', error);
+    throw error;
+  }
   await exposeKnowledgeThing(WoT);
 
   console.log(`✅ All Domain Things exposed at https://${process.env.SERVER_NAME}/{citymodel,airquality,api,knowledge}`);
@@ -101,4 +107,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(`Error: ${error}`);
+  process.exit(1);
 });
