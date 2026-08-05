@@ -21,7 +21,7 @@ const SOFIA_TILESET_ID = 'sofia-buildings-tileset';
 // ---------------------------------------------------------------------------
 
 /** Valid filter type names accepted by the filterBuildings action. */
-const VALID_FILTER_TYPES = ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'] as const;
+const VALID_FILTER_TYPES = ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] as const;
 type FilterType = typeof VALID_FILTER_TYPES[number];
 
 /** Default highlight colour per filter type. */
@@ -34,6 +34,7 @@ const DEFAULT_FILTER_COLORS: Record<string, string> = {
   'energy UTB':  'rgb(255, 140, 0)',
   'uhi4':        'rgb(222, 54, 41)',
   'uhi9':        'rgb(222, 54, 41)',
+  'sunhours':    'rgb(255, 200, 0)',
 };
 
 /**
@@ -119,6 +120,9 @@ function buildCesiumExpression(
 
     case 'uhi9':
       return parseNumericFilter('t2100_max', filterValue, '>=');
+
+    case 'sunhours':
+      return parseNumericFilter('sunhrs_int_avg', filterValue, '>=');
 
     default:
       return { error: `Unknown filterType "${filterType}". Must be one of: ${VALID_FILTER_TYPES.join(', ')}.` };
@@ -563,13 +567,13 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'setVisualizationStyle', ['invokeaction'])
       },
       filterBuildings: {
-        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters and multi-condition AND/OR filters. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26.',
+        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters and multi-condition AND/OR filters. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "sunhours" (avg daily sun hours), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26; sunhours high>=6 low<4.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
-              enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'none'],
+              enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours', 'none'],
               description: 'Filter type for single-condition use. Ignored when "filters" array is provided.'
             },
             filterValue: {
@@ -586,7 +590,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
               items: {
                 type: 'object',
                 properties: {
-                  filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'] },
+                  filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] },
                   filterValue: { type: 'string', description: 'For numeric types: single threshold (">=80", "50") or inclusive range ("20-30"). For class: exact class name.' },
                   color: { type: 'string', description: 'Per-condition color used in OR mode. Optional in AND mode.' }
                 },
