@@ -50,28 +50,38 @@ window.lastCameraState = null;
     window.requireLoggedInUserId = requireLoggedInUserId;
 
     /**
-     * Build a clear human-readable summary of what the UI applied, from the
-     * server-provided appliedResult (filters, colors, tileset, …).
+     * Build a clear human-readable summary of what the UI applied.
+     * Prefer server appliedResult.description (includes verified facts when present).
      */
     window.describeAppliedUiResult = function(payload, status) {
       const ar = payload?.appliedResult;
+      const factsNote = (() => {
+        const groups = ar?.facts?.groups;
+        if (!Array.isArray(groups) || !groups.length) return '';
+        const parts = groups.map((g) => {
+          if (g.matchCount === 0) return `${g.label}: 0 matches`;
+          if (g.matchCount == null) return `${g.label}: count unknown`;
+          return `${g.label}: ${g.matchCount}`;
+        });
+        return ` [facts: ${parts.join('; ')}]`;
+      })();
       if (ar?.description) {
         return status === 'applied'
-          ? `On map now: ${ar.description}`
-          : `Failed to show on map: ${ar.description}`;
+          ? `UI applied: ${ar.description}${factsNote}`
+          : `UI failed: ${ar.description}`;
       }
       if (payload?.styleName) {
         return status === 'applied'
-          ? `On map now: ${payload.styleName}`
-          : `Failed to apply on map: ${payload.styleName}`;
+          ? `UI applied style: ${payload.styleName}${factsNote}`
+          : `UI failed style: ${payload.styleName}`;
       }
       if (payload?.name || payload?.id) {
         const label = payload.name || payload.id;
         return status === 'applied'
-          ? `On map now: tileset ${payload.action || 'change'} — ${label}`
-          : `Failed tileset ${payload.action || 'change'} — ${label}`;
+          ? `UI applied tileset ${payload.action || 'change'}: ${label}`
+          : `UI failed tileset ${payload.action || 'change'}: ${label}`;
       }
-      return status === 'applied' ? 'Map UI change applied' : 'Map UI change failed';
+      return status === 'applied' ? 'UI change applied' : 'UI change failed';
     };
 
     /**

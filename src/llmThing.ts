@@ -1048,7 +1048,6 @@ async function main() {
     timestamp: string;
   };
 
-  const UI_ACK_TOOLS = new Set(['filterBuildings', 'setVisualizationStyle', 'loadTiles', 'removeTiles']);
   const uiStatusWaiters = new Map<string, {
     resolve: (report: UiStatusReport) => void;
     timer: NodeJS.Timeout;
@@ -1093,30 +1092,36 @@ async function main() {
     }
   }
 
+  /**
+   * Generic UI-ack enrichment for ANY domain action.
+   * Wait only when the action result opts in with `uiEffect.needsAck: true`
+   * (no hardcoded tool-name list). Merge browser ack into the tool result.
+   * Domain `facts` from the action are left untouched — they are the source of
+   * truth for data outcomes (e.g. match counts); uiStatus only confirms presentation.
+   */
   async function enrichToolResultWithUiStatus(
     toolName: string,
     toolCallId: string | undefined,
     toolResult: any,
     requestId: string
   ): Promise<any> {
-    if (!toolCallId || !UI_ACK_TOOLS.has(toolName) || toolResult?.error) {
+    if (!toolCallId || toolResult?.error || !toolResult?.uiEffect?.needsAck) {
       return toolResult;
     }
-    // loadTiles can take longer (network fetch of Cesium tileset)
-    const timeoutMs = toolName === 'loadTiles' ? 15000 : 5000;
+    const timeoutMs = Number(toolResult.uiEffect.timeoutMs) > 0
+      ? Number(toolResult.uiEffect.timeoutMs)
+      : 5000;
     console.log(`⏳ [${requestId}] waiting up to ${timeoutMs}ms for UI ack of ${toolName} (toolCallId=${toolCallId})`);
     const uiStatus = await waitForUiStatus(toolCallId, timeoutMs);
     if (uiStatus) {
       console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
-      // Flatten the most important applied-result text for the model
-      const applied = uiStatus.details?.appliedResult;
       return {
         ...toolResult,
         uiStatus: {
           status: uiStatus.status,
           summary: uiStatus.summary,
-          onMap: applied?.description || uiStatus.summary,
-          appliedResult: applied || null,
+          // Presentation confirmation only — do not treat this as "buildings of type X exist"
+          presentationApplied: uiStatus.status === 'applied',
           details: uiStatus.details || null
         }
       };
@@ -1126,8 +1131,8 @@ async function main() {
       ...toolResult,
       uiStatus: {
         status: 'timeout',
-        summary: 'Server emitted the change, but the browser did not confirm it was applied in time',
-        onMap: null
+        summary: 'Browser did not confirm the UI change in time',
+        presentationApplied: false
       }
     };
   }
@@ -1349,7 +1354,7 @@ async function main() {
           ...conversation,
           {
             role: 'system',
-            content: 'Now provide your final answer to the user. Do not use any tools. Prefer uiStatus.onMap / uiStatus.summary / uiStatus.appliedResult from tool results — these describe what is actually visible on the map (filters, colors, combine mode, tiles). If uiStatus.status is failed or timeout, say the map may not have updated.'
+            content: 'Now provide your final answer to the user. Do not use any tools. Rules: (1) Use tool-result "facts" for data truth (e.g. match counts, emptyGroups) — if a group has matchCount 0, say nothing will appear in that color; never claim those buildings are highlighted. (2) Use uiStatus only to confirm the browser applied the presentation (style/tiles). (3) If uiStatus.status is failed/timeout, say the map may not have updated.'
           }
         ];
 
@@ -1735,7 +1740,7 @@ async function main() {
                   const rawResult = typeof result?.value === 'function' ? await result.value() : result;
 
                   console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(rawResult, 300)}`);
-                  if (UI_ACK_TOOLS.has(toolName) && !rawResult?.error) {
+                  if (rawResult?.uiEffect?.needsAck && !rawResult?.error) {
                     emitLLMEvent(userId, 'conversationStream', {
                       requestId,
                       token: '',
@@ -1843,7 +1848,7 @@ async function main() {
                 ...conversation,
                 {
                   role: 'system',
-                  content: 'Now provide your final answer to the user. Do not use any tools. Prefer uiStatus.onMap / uiStatus.summary / uiStatus.appliedResult from tool results — these describe what is actually visible on the map (filters, colors, combine mode, tiles). If uiStatus.status is failed or timeout, say the map may not have updated. Offer helpful follow-up suggestions.'
+                  content: 'Now provide your final answer to the user. Do not use any tools. Rules: (1) Use tool-result "facts" for data truth (e.g. match counts, emptyGroups) — if a group has matchCount 0, say nothing will appear in that color; never claim those buildings are highlighted. (2) Use uiStatus only to confirm the browser applied the presentation (style/tiles). (3) If uiStatus.status is failed/timeout, say the map may not have updated. Offer helpful follow-up suggestions.'
                 }
               ];
 

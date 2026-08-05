@@ -9,6 +9,7 @@
 
 import { STYLE_DEFINITIONS, STYLE_NAMES, VALID_STYLES } from '../visualizationStyles';
 import { generateDynamicStyle, getDatabaseStatistics, BUILDING_CLASS_COLORS } from '../buildingVisualizationHelpers';
+import { countBuildingsMatching } from '../database';
 import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
 
 const TITLE = 'citymodel';
@@ -996,6 +997,11 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           id: input.style,
           name: styleName,
           definition: styleDefinition
+        },
+        uiEffect: {
+          needsAck: true,
+          timeoutMs: 5000,
+          summary: `Apply visualization style: ${styleName}`
         }
       };
     } catch (error) {
@@ -1043,7 +1049,12 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         return {
           success: true,
           message: 'Removed building filter and reset to default visualization style',
-          filter: { type: 'none', style: { show: true } }
+          filter: { type: 'none', style: { show: true } },
+          uiEffect: {
+            needsAck: true,
+            timeoutMs: 5000,
+            summary: 'Clear building filter / reset default style'
+          }
         };
       }
 
@@ -1136,7 +1147,46 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
 
       const filterStyleDefinition = { color: { conditions } };
 
-      // ── Emit ─────────────────────────────────────────────────────────────
+      // ── Verified facts (domain data) + UI effect (presentation) ──────────
+      // facts = what is true in the database; uiEffect = what the browser should apply.
+      // The LLM must use facts for "what exists", uiStatus only for "style was applied".
+      type MatchGroup = {
+        filterType: string;
+        filterValue: string;
+        color: string | null;
+        matchCount: number | null;
+        label: string;
+      };
+
+      const matchGroups: MatchGroup[] = [];
+      if (combineMode === 'AND') {
+        const count = await countBuildingsMatching([...resolvedFilters, ...sharedAndLegs]);
+        const first = resolvedFilters[0];
+        const color = input.color || first.color || null;
+        matchGroups.push({
+          filterType: 'combined',
+          filterValue: resolvedFilters.map((l) => `${l.filterType}:${l.filterValue}`).join('+'),
+          color,
+          matchCount: count,
+          label: resolvedFilters.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')
+        });
+      } else {
+        for (const leg of resolvedFilters) {
+          const count = await countBuildingsMatching([leg, ...sharedAndLegs]);
+          const colour = leg.color
+            || (leg.filterType === 'class'
+                ? BUILDING_CLASS_COLORS[leg.filterValue] || DEFAULT_FILTER_COLORS['class']
+                : DEFAULT_FILTER_COLORS[leg.filterType] || null);
+          matchGroups.push({
+            filterType: leg.filterType,
+            filterValue: leg.filterValue,
+            color: colour,
+            matchCount: count,
+            label: `${leg.filterType} ${leg.filterValue}`
+          });
+        }
+      }
+
       const describeLeg = (l: FilterLeg): string => {
         const colorPart = l.color ? ` in ${l.color}` : '';
         return `${l.filterType} ${l.filterValue}${colorPart}`;
@@ -1145,9 +1195,34 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       const andLabel = sharedAndLegs.length > 0
         ? `, also requiring ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')}`
         : '';
-      const sharedColorNote = combineMode === 'AND' && input.color ? ` (highlight color: ${input.color})` : '';
+
+      const groupFacts = matchGroups.map((g) => {
+        if (g.matchCount == null) return `${g.label}${g.color ? ` (${g.color})` : ''}: count unknown`;
+        if (g.matchCount === 0) return `${g.label}${g.color ? ` (${g.color})` : ''}: 0 buildings match — nothing will appear in that color`;
+        return `${g.label}${g.color ? ` (${g.color})` : ''}: ${g.matchCount} building(s)`;
+      });
+
+      const emptyGroups = matchGroups.filter((g) => g.matchCount === 0);
+      const totalMatched = matchGroups.reduce((sum, g) => sum + (g.matchCount ?? 0), 0);
+
+      // Honest description: what rule was applied + verified match counts
       const description =
-        `Highlighted buildings matching ${styleLabel}${andLabel}${sharedColorNote}; non-matching buildings shown in white`;
+        `Applied map filter [${styleLabel}${andLabel}] (${combineMode}); non-matching buildings white. ` +
+        `Verified matches: ${groupFacts.join('; ')}.`;
+
+      const facts = {
+        combineMode,
+        andFilters: sharedAndLegs,
+        groups: matchGroups,
+        emptyGroups: emptyGroups.map((g) => g.label),
+        totalMatched
+      };
+
+      const uiEffect = {
+        needsAck: true,
+        timeoutMs: 5000,
+        summary: `Apply building filter style: ${styleLabel}${andLabel}`
+      };
 
       const appliedResult = {
         action: 'filterBuildings',
@@ -1156,6 +1231,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         andFilters: sharedAndLegs,
         color: input.color || null,
         nonMatching: 'white',
+        facts,
         description
       };
 
@@ -1184,6 +1260,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           combineMode,
           style: filterStyleDefinition
         },
+        facts,
+        uiEffect,
         appliedResult
       };
     } catch (error) {
@@ -1249,6 +1327,11 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           name: SOFIA_TILESET.name,
           id: SOFIA_TILESET.id,
           url: SOFIA_TILESET.url
+        },
+        uiEffect: {
+          needsAck: true,
+          timeoutMs: 15000,
+          summary: `Load 3D tileset: ${SOFIA_TILESET.name}`
         }
       };
     } catch (error) {
@@ -1291,6 +1374,11 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         tileset: {
           id: SOFIA_TILESET_ID,
           name: 'Sofia Buildings'
+        },
+        uiEffect: {
+          needsAck: true,
+          timeoutMs: 5000,
+          summary: 'Remove Sofia 3D tileset from map'
         }
       };
     } catch (error) {

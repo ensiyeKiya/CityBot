@@ -133,6 +133,89 @@ async function createSessionTable(): Promise<void> {
   }
 }
 
+/** Condition used when counting buildings for filter/action facts. */
+export type BuildingFilterCondition = {
+  filterType: string;
+  filterValue: string;
+};
+
+function sqlColumnForFilterType(filterType: string): string | null {
+  switch (filterType) {
+    case 'class': return 'citygml_class_description';
+    case 'walkability': return 'walk_access_index';
+    case 'height': return 'citygml_measured_height';
+    case 'energy':
+    case 'energy LTB': return 'energy_ti_ltb';
+    case 'energy UTB': return 'energy_ti_utb';
+    case 'uhi4': return 't1600_max';
+    case 'uhi9': return 't2100_max';
+    case 'sunhours': return 'sunhrs_int_avg';
+    default: return null;
+  }
+}
+
+function defaultOperatorForFilterType(filterType: string): string {
+  if (filterType === 'energy' || filterType === 'energy LTB') return '<=';
+  return '>=';
+}
+
+function appendBuildingFilterCondition(
+  where: string[],
+  params: any[],
+  filterType: string,
+  filterValue: string
+): void {
+  const col = sqlColumnForFilterType(filterType);
+  if (!col) throw new Error(`Unsupported filterType for counting: ${filterType}`);
+
+  if (filterType === 'class') {
+    params.push(filterValue);
+    where.push(`${col} = $${params.length}`);
+    return;
+  }
+
+  const v = String(filterValue).trim();
+  const rangeMatch = v.match(/^(\d+\.?\d*)\s*-\s*(\d+\.?\d*)$/);
+  if (rangeMatch) {
+    params.push(parseFloat(rangeMatch[1]), parseFloat(rangeMatch[2]));
+    where.push(`${col} >= $${params.length - 1} AND ${col} <= $${params.length}`);
+    return;
+  }
+
+  const singleMatch = v.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+  if (!singleMatch) throw new Error(`Invalid numeric filter value for counting: ${filterValue}`);
+  const op = singleMatch[1] || defaultOperatorForFilterType(filterType);
+  if (!['>', '>=', '<', '<=', '=', '==', '!='].includes(op)) {
+    throw new Error(`Invalid operator in filter value: ${op}`);
+  }
+  params.push(parseFloat(singleMatch[2]));
+  where.push(`${col} ${op === '==' ? '=' : op} $${params.length}`);
+}
+
+/**
+ * Count buildings matching ALL conditions (AND). Returns null if the query fails.
+ * Used by domain actions to attach verified `facts` to their results.
+ */
+export async function countBuildingsMatching(conditions: BuildingFilterCondition[]): Promise<number | null> {
+  if (!conditions.length) return 0;
+  const client = getDatabaseClient();
+  const where: string[] = [];
+  const params: any[] = [];
+  try {
+    for (const c of conditions) {
+      appendBuildingFilterCondition(where, params, c.filterType, c.filterValue);
+    }
+    const result = await client.query(
+      `SELECT COUNT(*)::int AS count FROM buildings WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return result.rows[0]?.count ?? 0;
+  } catch (error) {
+    console.error('Error counting buildings for filter:', error, conditions);
+    return null;
+  }
+}
+
 /**
  * Get building statistics for visualization styles
  */
