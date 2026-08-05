@@ -134,6 +134,31 @@ function getDirectPlanningAnswer(conversation: any[]): string | null {
   return null;
 }
 
+/**
+ * Authoritative user-facing text from domain tool results.
+ *
+ * Convention (any Domain Thing action may return this):
+ *   { success: true, userMessage: "..." }
+ *
+ * When present, the LLM service uses these strings as the final answer instead
+ * of asking the model to re-narrate outcomes it already computed incorrectly.
+ * This is the correct ownership: the action that knows the facts writes the
+ * user message; the planner only chooses which tools to call.
+ */
+function collectUserMessagesFromTools(conversation: any[]): string | null {
+  const parts: string[] = [];
+  for (const msg of conversation) {
+    if (msg?.role !== 'tool') continue;
+    let parsed: any;
+    try { parsed = JSON.parse(String(msg.content ?? '')); } catch { continue; }
+    if (parsed?.error) continue;
+    const text = typeof parsed?.userMessage === 'string' ? parsed.userMessage.trim() : '';
+    if (text) parts.push(text);
+  }
+  if (!parts.length) return null;
+  return parts.join(' ');
+}
+
 // Extend OpenAI params with Qwen‑specific options
 type QwenChatCompletionParams =
   OpenAI.ChatCompletionCreateParamsNonStreaming & {
@@ -1115,20 +1140,31 @@ async function main() {
     const uiStatus = await waitForUiStatus(toolCallId, timeoutMs);
     if (uiStatus) {
       console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
+      const applied = uiStatus.status === 'applied';
+      // Keep domain userMessage on success; on UI failure, append a presentation note.
+      let userMessage = typeof toolResult.userMessage === 'string' ? toolResult.userMessage : undefined;
+      if (userMessage && !applied) {
+        userMessage = `${userMessage} (The browser did not confirm the map update: ${uiStatus.status}.)`;
+      }
       return {
         ...toolResult,
+        ...(userMessage ? { userMessage } : {}),
         uiStatus: {
           status: uiStatus.status,
           summary: uiStatus.summary,
-          // Presentation confirmation only — do not treat this as "buildings of type X exist"
-          presentationApplied: uiStatus.status === 'applied',
+          presentationApplied: applied,
           details: uiStatus.details || null
         }
       };
     }
     console.warn(`⚠️ [${requestId}] UI ack timeout for ${toolName}`);
+    let userMessage = typeof toolResult.userMessage === 'string' ? toolResult.userMessage : undefined;
+    if (userMessage) {
+      userMessage = `${userMessage} (The browser did not confirm the map update in time.)`;
+    }
     return {
       ...toolResult,
+      ...(userMessage ? { userMessage } : {}),
       uiStatus: {
         status: 'timeout',
         summary: 'Browser did not confirm the UI change in time',
@@ -1343,18 +1379,21 @@ async function main() {
         break;
       }
 
-      let finalContent = getDirectPlanningAnswer(conversation);
+      // Prefer authoritative userMessage from domain tools over model narration.
+      const domainUserMessage = collectUserMessagesFromTools(conversation);
+      let finalContent = domainUserMessage || getDirectPlanningAnswer(conversation);
       let finalReasoning: string | null = null;
 
-      if (finalContent) {
-        console.log(`✅ [${requestId}] using direct planning answer (no separate final call), toolsUsed=[${toolsUsed.join(', ')}]`);
+      if (domainUserMessage) {
+        console.log(`✅ [${requestId}] using domain userMessage(s) as final answer`);
+      } else if (finalContent) {
+        console.log(`✅ [${requestId}] using direct planning answer (no tools / no userMessage)`);
       } else {
-        // Tools ran or planning returned empty — generate final answer in a separate call
         const finalConversation = [
           ...conversation,
           {
             role: 'system',
-            content: 'Now provide your final answer to the user. Do not use any tools. Rules: (1) Use tool-result "facts" for data truth (e.g. match counts, emptyGroups) — if a group has matchCount 0, say nothing will appear in that color; never claim those buildings are highlighted. (2) Use uiStatus only to confirm the browser applied the presentation (style/tiles). (3) If uiStatus.status is failed/timeout, say the map may not have updated.'
+            content: 'Now provide your final answer to the user. Do not use any tools. Summarize only what the tool results report — do not invent map outcomes.'
           }
         ];
 
@@ -1805,15 +1844,31 @@ async function main() {
             console.warn(`⚠️ [${requestId}] hit max planning turns (${maxPlanningTurns}) without a final answer`);
           }
 
-          const directPlanningAnswer = getDirectPlanningAnswer(conversation);
+          const domainUserMessage = collectUserMessagesFromTools(conversation);
+          const directPlanningAnswer = domainUserMessage
+            ? null
+            : getDirectPlanningAnswer(conversation);
           let finalContent = '';
 
-          if (directPlanningAnswer) {
+          if (domainUserMessage) {
+            finalContent = domainUserMessage;
+            console.log(`✅ [${requestId}] using domain userMessage(s) as final answer`);
+            emitLLMEvent(userId, 'conversationStream', {
+              requestId,
+              token: '',
+              isFinal: false,
+              metadata: {
+                planningUpdate: '✅ Using domain action result as answer...',
+                planningComplete: true,
+                skippedFinalCall: true,
+                usedDomainUserMessage: true,
+                toolsUsedSoFar: [...toolsUsed]
+              }
+            });
+            emitLLMEvent(userId, 'conversationStream', { requestId, token: finalContent, isFinal: false });
+          } else if (directPlanningAnswer) {
             finalContent = stripLeakedToolMarker(directPlanningAnswer);
-            console.log(
-              `✅ [${requestId}] using direct planning answer (no separate final call), ` +
-              `toolsUsed=${toolsUsed.length ? toolsUsed.join(', ') : '(none)'}`
-            );
+            console.log(`✅ [${requestId}] using direct planning answer (no separate final call)`);
             emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
@@ -1827,7 +1882,6 @@ async function main() {
             });
             emitLLMEvent(userId, 'conversationStream', { requestId, token: finalContent, isFinal: false });
           } else {
-            // Emit completion of planning phase
             emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
@@ -1848,7 +1902,7 @@ async function main() {
                 ...conversation,
                 {
                   role: 'system',
-                  content: 'Now provide your final answer to the user. Do not use any tools. Rules: (1) Use tool-result "facts" for data truth (e.g. match counts, emptyGroups) — if a group has matchCount 0, say nothing will appear in that color; never claim those buildings are highlighted. (2) Use uiStatus only to confirm the browser applied the presentation (style/tiles). (3) If uiStatus.status is failed/timeout, say the map may not have updated. Offer helpful follow-up suggestions.'
+                  content: 'Now provide your final answer to the user. Do not use any tools. Summarize only what the tool results report — do not invent map outcomes. Offer helpful follow-up suggestions.'
                 }
               ];
 

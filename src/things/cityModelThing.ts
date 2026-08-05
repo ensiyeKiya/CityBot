@@ -993,6 +993,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       return {
         success: true,
         message: `Successfully applied ${styleName} visualization style`,
+        userMessage: `The map is now colored by ${styleName}.`,
         style: {
           id: input.style,
           name: styleName,
@@ -1049,6 +1050,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         return {
           success: true,
           message: 'Removed building filter and reset to default visualization style',
+          userMessage: 'Building filter cleared; the map is back to the default style.',
           filter: { type: 'none', style: { show: true } },
           uiEffect: {
             needsAck: true,
@@ -1168,7 +1170,9 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           filterValue: resolvedFilters.map((l) => `${l.filterType}:${l.filterValue}`).join('+'),
           color,
           matchCount: count,
-          label: resolvedFilters.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')
+          label: resolvedFilters.map((l) =>
+            l.filterType === 'class' ? l.filterValue : `${l.filterType} ${l.filterValue}`
+          ).join(' AND ')
         });
       } else {
         for (const leg of resolvedFilters) {
@@ -1182,7 +1186,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             filterValue: leg.filterValue,
             color: colour,
             matchCount: count,
-            label: `${leg.filterType} ${leg.filterValue}`
+            label: leg.filterType === 'class' ? leg.filterValue : `${leg.filterType} ${leg.filterValue}`
           });
         }
       }
@@ -1196,19 +1200,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         ? `, also requiring ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')}`
         : '';
 
-      const groupFacts = matchGroups.map((g) => {
-        if (g.matchCount == null) return `${g.label}${g.color ? ` (${g.color})` : ''}: count unknown`;
-        if (g.matchCount === 0) return `${g.label}${g.color ? ` (${g.color})` : ''}: 0 buildings match — nothing will appear in that color`;
-        return `${g.label}${g.color ? ` (${g.color})` : ''}: ${g.matchCount} building(s)`;
-      });
-
       const emptyGroups = matchGroups.filter((g) => g.matchCount === 0);
       const totalMatched = matchGroups.reduce((sum, g) => sum + (g.matchCount ?? 0), 0);
-
-      // Honest description: what rule was applied + verified match counts
-      const description =
-        `Applied map filter [${styleLabel}${andLabel}] (${combineMode}); non-matching buildings white. ` +
-        `Verified matches: ${groupFacts.join('; ')}.`;
 
       const facts = {
         combineMode,
@@ -1217,6 +1210,31 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         emptyGroups: emptyGroups.map((g) => g.label),
         totalMatched
       };
+
+      // Authoritative user-facing text (consumed by llmThing as the final answer)
+      const visibleParts = matchGroups
+        .filter((g) => (g.matchCount ?? 0) > 0)
+        .map((g) => `${g.label}${g.color ? ` in ${g.color}` : ''} (${g.matchCount})`);
+      const emptyParts = matchGroups
+        .filter((g) => g.matchCount === 0)
+        .map((g) => `${g.label}${g.color ? ` (${g.color})` : ''}`);
+      const constraintNote = sharedAndLegs.length
+        ? ` with ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' and ')}`
+        : '';
+      let userMessage: string;
+      if (totalMatched === 0 && matchGroups.every((g) => g.matchCount != null)) {
+        userMessage = `No buildings matched the filter${constraintNote}, so nothing is highlighted.`;
+      } else {
+        userMessage = visibleParts.length
+          ? `Highlighted on the map${constraintNote}: ${visibleParts.join('; ')}.`
+          : `Filter applied${constraintNote}.`;
+        if (emptyParts.length) {
+          userMessage += ` No matches for ${emptyParts.join(', ')}, so that color does not appear.`;
+        }
+        userMessage += ' Other buildings are shown in white.';
+      }
+
+      const description = userMessage;
 
       const uiEffect = {
         needsAck: true,
@@ -1254,6 +1272,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       return {
         success: true,
         message: description,
+        userMessage,
         filter: {
           filters: resolvedFilters,
           andFilters: sharedAndLegs,
@@ -1323,6 +1342,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       return {
         success: true,
         message: 'Successfully loaded Sofia\'s 3D building tiles',
+        userMessage: 'The 3D model of Sofia\'s buildings has been loaded onto the map.',
         tileset: {
           name: SOFIA_TILESET.name,
           id: SOFIA_TILESET.id,
@@ -1371,6 +1391,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       return {
         success: true,
         message: 'Successfully removed Sofia\'s 3D building tiles',
+        userMessage: 'Sofia\'s 3D building tiles have been removed from the map.',
         tileset: {
           id: SOFIA_TILESET_ID,
           name: 'Sofia Buildings'
