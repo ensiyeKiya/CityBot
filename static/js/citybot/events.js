@@ -615,6 +615,19 @@ window.subscribeToWoTEvents = async function() {
             console.error('❌ Invalid sensors payload');
             return;
           }
+
+          const sensorsAckBase = {
+            requestId: payload.requestId || null,
+            toolCallId: payload.toolCallId || null,
+            kind: 'sensors',
+            details: {
+              action: payload.action,
+              operator: payload.operator || null,
+              parameter: payload.parameter || null,
+              sensorCount: payload.sensorCount ?? null,
+              appliedResult: payload.appliedResult || null
+            }
+          };
           
           try {
             if (payload.action === 'remove') {
@@ -623,7 +636,13 @@ window.subscribeToWoTEvents = async function() {
                 window.viewer.entities.remove(entity);
               });
               window.sensorEntities = [];
-              window.currentSensorOperator = null;              
+              window.currentSensorOperator = null;
+              window.currentSensorParameter = null;
+              window.reportUiStatus({
+                ...sensorsAckBase,
+                status: 'applied',
+                summary: payload.appliedResult?.description || 'Removed sensor pins from map'
+              });
             } else if (payload.action === 'load') {
               // Load sensors from backend data              
               // Store current sensor state
@@ -699,7 +718,17 @@ window.subscribeToWoTEvents = async function() {
                   
                   window.sensorEntities.push(entity);
                 });
-              }              
+              }
+              window.reportUiStatus({
+                ...sensorsAckBase,
+                status: 'applied',
+                summary: payload.appliedResult?.description
+                  || `Loaded ${window.sensorEntities.length} sensor pins on map`,
+                details: {
+                  ...sensorsAckBase.details,
+                  sensorCount: window.sensorEntities.length
+                }
+              });
             } else if (payload.action === 'filter') {
               // Filter existing sensors              
               window.sensorEntities.forEach(entity => {
@@ -743,10 +772,26 @@ window.subscribeToWoTEvents = async function() {
                 entity.show = shouldShow;
               });
               
-              const visibleCount = window.sensorEntities.filter(e => e.show).length;            }
+              const visibleCount = window.sensorEntities.filter(e => e.show).length;
+              window.reportUiStatus({
+                ...sensorsAckBase,
+                status: 'applied',
+                summary: payload.appliedResult?.description
+                  || `Filtered sensors; ${visibleCount} visible`,
+                details: {
+                  ...sensorsAckBase.details,
+                  visibleCount
+                }
+              });
+            }
             
           } catch (error) {
             console.error('❌ Error handling sensors:', error);
+            window.reportUiStatus({
+              ...sensorsAckBase,
+              status: 'failed',
+              summary: `Failed to apply sensors on map: ${error.message || String(error)}`
+            });
           }
         };
 

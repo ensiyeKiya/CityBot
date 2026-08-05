@@ -380,7 +380,15 @@ async function main() {
   const EXPECTED_DOMAIN_ACTIONS: Record<DomainThingTitle, readonly string[]> = {
     citymodel: ['flyTo', 'setCameraView', 'setVisualizationStyle', 'filterBuildings', 'loadTiles', 'removeTiles'],
     airquality: ['replayPollution', 'replayPrediction', 'clearPollutionClouds'],
-    api: ['getWeather', 'getCoordinates', 'reverseGeocode'],
+    api: [
+      'getWeather',
+      'getCoordinates',
+      'reverseGeocode',
+      'loadSensors',
+      'filterSensors',
+      'removeSensors',
+      'getSensorMeasurement'
+    ],
     knowledge: ['getWikipediaSummary']
   };
 
