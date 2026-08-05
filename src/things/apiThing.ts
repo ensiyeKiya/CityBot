@@ -192,7 +192,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filters already-loaded sensor pins on the map without refetching. filterType: quality (good/moderate/poor/very poor/hazardous), value (e.g. ">50", "<20"), operator, or name (station id like AT12). Prefer loadSensors when changing operator/parameter.',
+        description: 'Filters already-loaded sensor pins on the map without refetching. filterType: quality (good/moderate/poor/very poor/hazardous), value (e.g. ">50", "<20"), operator, or name (station id like AT12). For quality/value you MUST pass parameter (e.g. PM2.5). Prefer loadSensors with that parameter first so pins are colored by the metric. For "worst/highest" readings prefer loadSensors(parameter) rather than filtering only "hazardous".',
         input: {
           type: 'object',
           properties: {
@@ -207,7 +207,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             },
             parameter: {
               type: 'string',
-              description: 'Parameter abbreviation for quality/value filters (required for those types)'
+              description: 'Required for quality/value filters. Parameter abbreviation (PM10, PM2.5, NO2, …). Values are read from each station even if sensors were loaded without a parameter.'
             },
             userId: { type: 'string' }
           },
@@ -508,6 +508,12 @@ export async function exposeApiThing(WoT: any): Promise<any> {
       let parameter: string | null = null;
       if (input.parameter) {
         parameter = resolveParameterAbbrev(input.parameter);
+      }
+      if ((input.filterType === 'quality' || input.filterType === 'value') && !parameter) {
+        return {
+          error: true,
+          message: `parameter is required for ${input.filterType} filters (e.g. PM2.5, NO2, PM10).`
+        };
       }
       let filterValue = String(input.filterValue);
       if (input.filterType === 'operator') {

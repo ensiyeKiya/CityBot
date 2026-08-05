@@ -1154,6 +1154,21 @@ async function main() {
       if (userMessage && !applied) {
         userMessage = `${userMessage} (The browser did not confirm the map update: ${uiStatus.status}.)`;
       }
+      // Sensor filters: browser reports how many pins remained visible — prefer that count.
+      const visibleCount = uiStatus.details?.visibleCount;
+      const totalCount = uiStatus.details?.totalCount;
+      if (
+        applied &&
+        toolName === 'filterSensors' &&
+        typeof visibleCount === 'number' &&
+        typeof totalCount === 'number'
+      ) {
+        if (visibleCount === 0) {
+          userMessage = `No sensor pins match that filter (${totalCount} loaded; none visible).`;
+        } else if (visibleCount < totalCount) {
+          userMessage = `${visibleCount} of ${totalCount} sensor pins match the filter and remain visible on the map.`;
+        }
+      }
       return {
         ...toolResult,
         ...(userMessage ? { userMessage } : {}),

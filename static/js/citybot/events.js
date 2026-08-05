@@ -730,57 +730,74 @@ window.subscribeToWoTEvents = async function() {
                 }
               });
             } else if (payload.action === 'filter') {
-              // Filter existing sensors              
+              // Filter existing sensors. Quality/value filters must read the
+              // named parameter from entity properties — currentValue is only
+              // set when sensors were loaded with that parameter already.
+              const filterParameter = payload.parameter || window.currentSensorParameter || null;
+              if (filterParameter && (payload.filterType === 'quality' || payload.filterType === 'value')) {
+                window.currentSensorParameter = filterParameter;
+              }
+
               window.sensorEntities.forEach(entity => {
                 let shouldShow = true;
                 
                 if (payload.filterType === 'quality') {
-                  // Filter by air quality level
-                  const value = entity.properties.currentValue?.getValue();
-                  const parameter = payload.parameter || window.currentSensorParameter;
+                  const parameter = filterParameter;
                   if (parameter) {
+                    const value = getEntitySensorValue(entity, parameter);
                     shouldShow = matchesQualityLevel(value, parameter, payload.filterValue);
+                    if (shouldShow) {
+                      updateEntitySensorDisplay(entity, parameter, value);
+                    }
                   } else {
-                    shouldShow = false; // Can't filter by quality without a specific parameter
+                    shouldShow = false;
                   }
                   
                 } else if (payload.filterType === 'value') {
-                  // Filter by numeric value
-                  const value = entity.properties.currentValue?.getValue();
-                  const parameter = payload.parameter || window.currentSensorParameter;
+                  const parameter = filterParameter;
                   if (parameter) {
+                    const value = getEntitySensorValue(entity, parameter);
                     shouldShow = matchesValueFilter(value, payload.filterValue);
+                    if (shouldShow) {
+                      updateEntitySensorDisplay(entity, parameter, value);
+                    }
                   } else {
-                    shouldShow = false; // Can't filter by value without a specific parameter
+                    shouldShow = false;
                   }
                   
                 } else if (payload.filterType === 'operator') {
-                  // Filter by operator
                   const entityOperator = entity.properties.operator?.getValue();
                   shouldShow = entityOperator === payload.filterValue;
                   
                 } else if (payload.filterType === 'name') {
-                  // Filter by sensor name/label
                   const entityName = entity.properties.object?.getValue() || '';
                   const searchValue = payload.filterValue.toLowerCase();
                   shouldShow = entityName.toLowerCase().includes(searchValue);
                   
                 } else if (payload.filterType === 'parameter') {
-                  // This would require reloading with different parameter
+                  // Reload with a parameter via loadSensors — filter alone cannot recolor by a new metric
+                  shouldShow = getEntitySensorValue(entity, payload.filterValue) != null;
                 }
                 
                 entity.show = shouldShow;
               });
               
               const visibleCount = window.sensorEntities.filter(e => e.show).length;
+              const totalCount = window.sensorEntities.length;
+              const filterSummary = payload.appliedResult?.description
+                || `Filtered sensors; ${visibleCount} visible`;
+              const summaryWithCount = visibleCount === totalCount
+                ? filterSummary
+                : `${filterSummary} (${visibleCount} of ${totalCount} visible)`;
               window.reportUiStatus({
                 ...sensorsAckBase,
                 status: 'applied',
-                summary: payload.appliedResult?.description
-                  || `Filtered sensors; ${visibleCount} visible`,
+                summary: summaryWithCount,
                 details: {
                   ...sensorsAckBase.details,
-                  visibleCount
+                  visibleCount,
+                  totalCount,
+                  parameter: filterParameter
                 }
               });
             }
@@ -1138,11 +1155,50 @@ window.subscribeToWoTEvents = async function() {
           return canvas;
         }
 
+        /** Read a numeric sensor reading from a Cesium entity (live scalar or {avg,max,min}). */
+        function getEntitySensorValue(entity, parameter) {
+          if (!entity?.properties || !parameter) return null;
+
+          const readProp = (key) => {
+            const prop = entity.properties[key];
+            if (prop == null) return undefined;
+            return typeof prop.getValue === 'function' ? prop.getValue() : prop;
+          };
+
+          // Prefer the named parameter (works even after loadSensors without parameter)
+          let raw = readProp(parameter);
+          if (raw === undefined || raw === null) {
+            raw = readProp('currentValue');
+          }
+          if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
+          if (raw && typeof raw === 'object') {
+            const n = raw.avg ?? raw.max ?? raw.min;
+            return typeof n === 'number' && !Number.isNaN(n) ? n : null;
+          }
+          return null;
+        }
+
+        /** Recolor / rename a pin when filtering by a specific parameter. */
+        function updateEntitySensorDisplay(entity, parameter, value) {
+          if (!entity?.billboard) return;
+          const label = entity.properties.object?.getValue?.() || entity.properties.object || 'Sensor';
+          const color = getSensorColorFromValue(parameter, value);
+          entity.billboard.image = createSensorPin(color, label);
+          entity.name = `Air Quality Sensor ${label} - ${parameter}: ${value != null ? value : 'N/A'}`;
+          if (entity.properties.currentParam) {
+            entity.properties.currentParam = parameter;
+          }
+          if (entity.properties.currentValue !== undefined) {
+            entity.properties.currentValue = value;
+          }
+        }
+
         // Helper function to match quality level
         function matchesQualityLevel(value, param, qualityLevel) {
           if (value === null || value === undefined) return false;
           
           const config = airQualityConfig[param] || airQualityConfig.default;
+          if (!config || !config.thresholds || !config.labels) return false;
           const level = qualityLevel.toLowerCase().replace(/\s+/g, '');
           
           if (config.isMeteo) {
