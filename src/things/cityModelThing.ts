@@ -48,6 +48,48 @@ function toCesiumColorExpr(value: string): string {
 }
 
 /**
+ * Parse a numeric filter value string into a Cesium condition fragment.
+ *
+ * Accepted formats (examples use walkability, same rules apply to all numeric types):
+ *   ">=80"        → prop >= 80
+ *   ">80"         → prop > 80
+ *   "<=30"        → prop <= 30
+ *   "80"          → prop >= 80   (bare number → default operator)
+ *   "20-30"       → prop >= 20 && prop <= 30   (inclusive range)
+ *   "20 - 30"     → same, spaces around dash are ignored
+ *
+ * Returns the condition string fragment (the part between feature and the
+ * catch-all "true") or an error message.
+ */
+function parseNumericFilter(
+  prop: string,          // Cesium feature property expression, e.g. "walk_access_index"
+  filterValue: string,
+  defaultOp = '>='
+): { expr: string } | { error: string } {
+  const v = filterValue.trim();
+
+  // Range: "20-30" or "20 - 30"  (leading operator would be ambiguous, so
+  // only match when the first char is a digit or a decimal point)
+  const rangeMatch = v.match(/^(\d+\.?\d*)\s*-\s*(\d+\.?\d*)$/);
+  if (rangeMatch) {
+    const lo = rangeMatch[1];
+    const hi = rangeMatch[2];
+    if (parseFloat(lo) > parseFloat(hi)) {
+      return { error: `Range "${v}" is invalid — lower bound exceeds upper bound.` };
+    }
+    return { expr: `Number(\${feature['${prop}']}) >= ${lo} && Number(\${feature['${prop}']}) <= ${hi}` };
+  }
+
+  // Single threshold: optional operator + number
+  const singleMatch = v.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+  if (singleMatch) {
+    return { expr: `Number(\${feature['${prop}']}) ${singleMatch[1] || defaultOp} ${singleMatch[2]}` };
+  }
+
+  return { error: `Invalid numeric filter value "${filterValue}". Use e.g. ">=80", "50", or "20-30".` };
+}
+
+/**
  * Build a Cesium 3D Tiles boolean condition expression for one filter leg.
  * Returns `{ expr }` on success or `{ error }` on bad input.
  */
@@ -57,45 +99,26 @@ function buildCesiumExpression(
 ): { expr: string } | { error: string } {
   switch (filterType) {
     case 'class':
-      // Escape single quotes in the value just in case
       return { expr: `\${feature['citygml_class_description']} === '${filterValue.replace(/'/g, "\\'")}'` };
 
-    case 'walkability': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid walkability value "${filterValue}". Use e.g. ">=80" or "50".` };
-      return { expr: `Number(\${feature['walk_access_index']}) ${m[1] || '>='} ${m[2]}` };
-    }
+    case 'walkability':
+      return parseNumericFilter('walk_access_index', filterValue, '>=');
 
-    case 'height': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid height value "${filterValue}". Use e.g. ">=50" or "30".` };
-      return { expr: `Number(\${feature['citygml_measured_height']}) ${m[1] || '>='} ${m[2]}` };
-    }
+    case 'height':
+      return parseNumericFilter('citygml_measured_height', filterValue, '>=');
 
     case 'energy':
-    case 'energy LTB': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid energy LTB value "${filterValue}". Use e.g. "<=48".` };
-      return { expr: `Number(\${feature['energy_ti_ltb']}) ${m[1] || '<='} ${m[2]}` };
-    }
+    case 'energy LTB':
+      return parseNumericFilter('energy_ti_ltb', filterValue, '<=');
 
-    case 'energy UTB': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid energy UTB value "${filterValue}". Use e.g. ">=750".` };
-      return { expr: `Number(\${feature['energy_ti_utb']}) ${m[1] || '>='} ${m[2]}` };
-    }
+    case 'energy UTB':
+      return parseNumericFilter('energy_ti_utb', filterValue, '>=');
 
-    case 'uhi4': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid uhi4 value "${filterValue}". Use e.g. ">=28".` };
-      return { expr: `Number(\${feature['t1600_max']}) ${m[1] || '>='} ${m[2]}` };
-    }
+    case 'uhi4':
+      return parseNumericFilter('t1600_max', filterValue, '>=');
 
-    case 'uhi9': {
-      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
-      if (!m) return { error: `Invalid uhi9 value "${filterValue}". Use e.g. ">=26".` };
-      return { expr: `Number(\${feature['t2100_max']}) ${m[1] || '>='} ${m[2]}` };
-    }
+    case 'uhi9':
+      return parseNumericFilter('t2100_max', filterValue, '>=');
 
     default:
       return { error: `Unknown filterType "${filterType}". Must be one of: ${VALID_FILTER_TYPES.join(', ')}.` };
@@ -551,7 +574,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             },
             filterValue: {
               type: 'string',
-              description: 'Filter value for single-condition use. Ignored when "filters" array is provided.'
+              description: 'Filter value for single-condition use. Numeric types accept: single threshold (">=80", "50") or inclusive range ("20-30"). Class uses exact class name. Ignored when "filters" array is provided.'
             },
             color: {
               type: 'string',
@@ -564,7 +587,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
                 type: 'object',
                 properties: {
                   filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'] },
-                  filterValue: { type: 'string' },
+                  filterValue: { type: 'string', description: 'For numeric types: single threshold (">=80", "50") or inclusive range ("20-30"). For class: exact class name.' },
                   color: { type: 'string', description: 'Per-condition color used in OR mode. Optional in AND mode.' }
                 },
                 required: ['filterType', 'filterValue']
