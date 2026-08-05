@@ -1,7 +1,8 @@
 /**
  * API Thing — aggregates live external feeds: OpenWeatherMap (current
  * conditions), Nominatim (two-way geocoding), and the GATE CityLab Sofia
- * Sensors environmental station network (load / filter / remove / query).
+ * Sensors environmental station network via CityLab 3cm-server
+ * (load / filter / remove / query).
  */
 
 import fetch from 'node-fetch';
@@ -626,11 +627,18 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         message: userMessage,
         userMessage,
         station,
+        operator: data.operator,
         parameter,
         value,
         date_measured: data.date_measured,
         measurements: data.measurements,
-        facts: { station, parameter, value, date_measured: data.date_measured }
+        facts: {
+          station,
+          operator: data.operator,
+          parameter,
+          value,
+          date_measured: data.date_measured
+        }
       };
     } catch (error) {
       console.error('Error in getSensorMeasurement handler:', error);
