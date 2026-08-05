@@ -1032,7 +1032,7 @@ async function main() {
             toolCallId: { type: 'string', description: 'Tool call id that triggered the change' },
             kind: {
               type: 'string',
-              enum: ['tileset', 'visualization', 'camera', 'other'],
+              enum: ['tileset', 'visualization', 'camera', 'sensors', 'pollution', 'other'],
               description: 'Category of UI change'
             },
             status: {
