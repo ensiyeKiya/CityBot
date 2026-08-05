@@ -1211,27 +1211,108 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         totalMatched
       };
 
-      // Authoritative user-facing text (consumed by llmThing as the final answer)
-      const visibleParts = matchGroups
-        .filter((g) => (g.matchCount ?? 0) > 0)
-        .map((g) => `${g.label}${g.color ? ` in ${g.color}` : ''} (${g.matchCount})`);
-      const emptyParts = matchGroups
-        .filter((g) => g.matchCount === 0)
-        .map((g) => `${g.label}${g.color ? ` (${g.color})` : ''}`);
-      const constraintNote = sharedAndLegs.length
-        ? ` with ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' and ')}`
-        : '';
+      // Authoritative user-facing text (consumed by llmThing as the final answer).
+      // Keep it natural — no match counts in the spoken reply.
+      const friendlyLabel = (g: MatchGroup): string => {
+        if (g.filterType === 'class' || g.filterType === 'combined') {
+          const raw = g.filterType === 'class' ? g.filterValue : g.label;
+          const map: Record<string, string> = {
+            'healthcare': 'hospitals',
+            'schools, education, research': 'schools',
+            'sport': 'sports centers',
+            'business, trade': 'business buildings',
+            'habitation': 'residential buildings',
+            'church institution': 'churches',
+            'administration': 'administrative buildings',
+            'industry': 'industrial buildings',
+            'storage': 'storage buildings',
+            'traffic': 'traffic buildings',
+            'culture': 'cultural buildings'
+          };
+          if (g.filterType === 'class' && map[raw]) return map[raw];
+          // combined AND of classes — map each piece when possible
+          return raw.split(' AND ').map((p) => {
+            const v = p.replace(/^class\s+/, '');
+            return map[v] || v;
+          }).join(' and ');
+        }
+        return g.label;
+      };
+
+      const friendlyConstraint = (legs: SharedAndLeg[]): string => {
+        if (!legs.length) return '';
+        return legs.map((l) => {
+          const v = l.filterValue.trim();
+          if (l.filterType === 'height') {
+            if (v.startsWith('>=') || v.startsWith('>')) return `taller than ${v.replace(/^>=?/, '')} meters`;
+            if (v.startsWith('<=') || v.startsWith('<')) return `shorter than ${v.replace(/^<=?/, '')} meters`;
+            if (v.includes('-')) return `${v} meters tall`;
+            return `height ${v}`;
+          }
+          if (l.filterType === 'walkability') {
+            if (v.startsWith('>=') || v.startsWith('>')) return `walkability above ${v.replace(/^>=?/, '')}`;
+            if (v.startsWith('<=') || v.startsWith('<')) return `walkability below ${v.replace(/^<=?/, '')}`;
+            return `walkability ${v}`;
+          }
+          if (l.filterType === 'sunhours') {
+            if (v.startsWith('>=') || v.startsWith('>')) return `more than ${v.replace(/^>=?/, '')} hours of sun`;
+            return `sun hours ${v}`;
+          }
+          return `${l.filterType} ${v}`;
+        }).join(' and ');
+      };
+
+      const visible = matchGroups.filter((g) => (g.matchCount ?? 0) > 0);
+      const empty = matchGroups.filter((g) => g.matchCount === 0);
+      const constraint = friendlyConstraint(sharedAndLegs);
+
       let userMessage: string;
       if (totalMatched === 0 && matchGroups.every((g) => g.matchCount != null)) {
-        userMessage = `No buildings matched the filter${constraintNote}, so nothing is highlighted.`;
-      } else {
-        userMessage = visibleParts.length
-          ? `Highlighted on the map${constraintNote}: ${visibleParts.join('; ')}.`
-          : `Filter applied${constraintNote}.`;
-        if (emptyParts.length) {
-          userMessage += ` No matches for ${emptyParts.join(', ')}, so that color does not appear.`;
+        userMessage = constraint
+          ? `I couldn't find any buildings that match (${constraint}), so nothing is highlighted.`
+          : `I couldn't find any buildings that match that filter, so nothing is highlighted.`;
+      } else if (visible.length === 1 && empty.length === 0) {
+        const g = visible[0];
+        const name = friendlyLabel(g);
+        const Name = name.replace(/^\w/, (c) => c.toUpperCase());
+        if (constraint && g.color) {
+          userMessage = `${Name} ${constraint} are now highlighted in ${g.color}.`;
+        } else if (constraint) {
+          userMessage = `${Name} ${constraint} are now highlighted on the map.`;
+        } else if (g.color) {
+          userMessage = `${Name} are now highlighted in ${g.color}.`;
+        } else {
+          userMessage = `${Name} are now highlighted on the map.`;
         }
-        userMessage += ' Other buildings are shown in white.';
+      } else {
+        const listed = visible.map((g) => {
+          const name = friendlyLabel(g);
+          return g.color ? `${name} in ${g.color}` : name;
+        });
+        if (listed.length === 1) {
+          const Name = listed[0].replace(/^\w/, (c) => c.toUpperCase());
+          userMessage = constraint
+            ? `${Name} are now highlighted (${constraint}).`
+            : `${Name} are now highlighted on the map.`;
+        } else if (listed.length === 2) {
+          userMessage = constraint
+            ? `The map now shows ${listed[0]} and ${listed[1]} (${constraint}).`
+            : `The map now shows ${listed[0]} and ${listed[1]}.`;
+        } else {
+          const last = listed[listed.length - 1];
+          const head = listed.slice(0, -1).join(', ');
+          userMessage = constraint
+            ? `The map now shows ${head}, and ${last} (${constraint}).`
+            : `The map now shows ${head}, and ${last}.`;
+        }
+        if (empty.length === 1) {
+          const g = empty[0];
+          userMessage += g.color
+            ? ` No ${friendlyLabel(g)} matched, so nothing appears in ${g.color}.`
+            : ` No ${friendlyLabel(g)} matched.`;
+        } else if (empty.length > 1) {
+          userMessage += ` No ${empty.map(friendlyLabel).join(' or ')} matched, so those colors do not appear.`;
+        }
       }
 
       const description = userMessage;
