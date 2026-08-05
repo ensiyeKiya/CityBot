@@ -567,7 +567,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'setVisualizationStyle', ['invokeaction'])
       },
       filterBuildings: {
-        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters and multi-condition AND/OR filters. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "sunhours" (avg daily sun hours), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26; sunhours high>=6 low<4.',
+        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters, multi-condition AND/OR filters, and shared AND constraints. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\nSHARED CONSTRAINT: set "andFilters" to apply extra AND conditions to EVERY matching group. Example — schools red + hospitals blue + sports orange, all taller than 30 m: filters=[{filterType:"class",filterValue:"schools, education, research",color:"red"},{filterType:"class",filterValue:"healthcare",color:"blue"},{filterType:"class",filterValue:"sport",color:"orange"}], combineMode:"OR", andFilters=[{filterType:"height",filterValue:">=30"}].\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "sunhours" (avg daily sun hours), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26; sunhours high>=6 low<4.',
         input: {
           type: 'object',
           properties: {
@@ -601,6 +601,18 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
               type: 'string',
               enum: ['AND', 'OR'],
               description: 'How to combine the "filters" array. "AND" (default): only buildings matching ALL conditions are highlighted in a single shared color. "OR": each condition highlights independently in its own per-condition color.'
+            },
+            andFilters: {
+              type: 'array',
+              description: 'Extra conditions ANDed onto every match from "filters" (or the single filter). Use for shared constraints like height/walkability/sunhours when coloring multiple classes differently with combineMode "OR".',
+              items: {
+                type: 'object',
+                properties: {
+                  filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] },
+                  filterValue: { type: 'string', description: 'Numeric threshold/range or exact class name.' }
+                },
+                required: ['filterType', 'filterValue']
+              }
             }
           }
         },
@@ -1040,6 +1052,27 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         }
       }
 
+      // Optional shared AND constraints applied to every match group
+      type SharedAndLeg = { filterType: string; filterValue: string };
+      const sharedAndLegs: SharedAndLeg[] = Array.isArray(input.andFilters) ? input.andFilters : [];
+      for (const leg of sharedAndLegs) {
+        if (!VALID_FILTER_TYPES.includes(leg.filterType as FilterType)) {
+          return { error: true, message: `Invalid andFilters filterType "${leg.filterType}". Valid values: ${VALID_FILTER_TYPES.join(', ')}.` };
+        }
+        if (!leg.filterValue) {
+          return { error: true, message: `andFilters filterValue is required for filterType "${leg.filterType}".` };
+        }
+      }
+
+      const sharedAndExprs: string[] = [];
+      for (const leg of sharedAndLegs) {
+        const result = buildCesiumExpression(leg.filterType, leg.filterValue);
+        if ('error' in result) return { error: true, message: `andFilters: ${result.error}` };
+        sharedAndExprs.push(result.expr);
+      }
+      const withSharedAnd = (expr: string): string =>
+        sharedAndExprs.length === 0 ? expr : `(${expr}) && (${sharedAndExprs.join(' && ')})`;
+
       // ── Build Cesium conditions ──────────────────────────────────────────
       const combineMode: 'AND' | 'OR' = input.combineMode === 'OR' ? 'OR' : 'AND';
 
@@ -1053,7 +1086,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           if ('error' in result) return { error: true, message: result.error };
           expressions.push(result.expr);
         }
-        const combinedExpr = expressions.join(' && ');
+        const combinedExpr = withSharedAnd(expressions.join(' && '));
 
         // Shared colour: top-level color → first leg color → default for first filterType
         const firstLeg = resolvedFilters[0];
@@ -1068,7 +1101,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           ["true", "color('white')"]
         ];
       } else {
-        // OR mode: each leg gets its own colour and its own conditions entry.
+        // OR mode: each leg gets its own colour; shared andFilters are ANDed onto each leg.
         const legConditions: [string, string][] = [];
         for (const leg of resolvedFilters) {
           const result = buildCesiumExpression(leg.filterType, leg.filterValue);
@@ -1077,7 +1110,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             || (leg.filterType === 'class'
                 ? BUILDING_CLASS_COLORS[leg.filterValue] || DEFAULT_FILTER_COLORS['class']
                 : DEFAULT_FILTER_COLORS[leg.filterType] || 'rgb(255, 255, 0)');
-          legConditions.push([result.expr, toCesiumColorExpr(colour)]);
+          legConditions.push([withSharedAnd(result.expr), toCesiumColorExpr(colour)]);
         }
         conditions = [...legConditions, ["true", "color('white')"]];
       }
@@ -1088,11 +1121,14 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       const styleLabel = resolvedFilters
         .map((l) => `${l.filterType} ${l.filterValue}`)
         .join(combineMode === 'AND' ? ' AND ' : ' OR ');
+      const andLabel = sharedAndLegs.length > 0
+        ? ` AND ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')}`
+        : '';
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
           style: 'custom_filter',
-          styleName: `Filter: ${styleLabel}`,
+          styleName: `Filter: ${styleLabel}${andLabel}`,
           styleDefinition: filterStyleDefinition,
           timestamp: new Date().toISOString()
         });
@@ -1103,9 +1139,10 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
 
       return {
         success: true,
-        message: `Highlighted buildings matching [${styleLabel}] (${combineMode}), all others shown in white`,
+        message: `Highlighted buildings matching [${styleLabel}${andLabel}] (${combineMode}), all others shown in white`,
         filter: {
           filters: resolvedFilters,
+          andFilters: sharedAndLegs,
           combineMode,
           style: filterStyleDefinition
         }
