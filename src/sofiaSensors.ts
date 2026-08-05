@@ -306,6 +306,167 @@ export async function loadSensorNetwork(options: {
   };
 }
 
+/** CAQI-style bands — keep in sync with static/js/citybot/events.js airQualityConfig. */
+export const QUALITY_CONFIG: Record<string, { thresholds: number[]; labels: string[]; unit: string }> = {
+  PM10: { thresholds: [25, 50, 75, 100], labels: ['Good', 'Moderate', 'Poor', 'Very Poor', 'Hazardous'], unit: 'µg/m³' },
+  'PM2.5': { thresholds: [15, 30, 55, 110], labels: ['Good', 'Moderate', 'Poor', 'Very Poor', 'Hazardous'], unit: 'µg/m³' },
+  PM1: { thresholds: [10, 20, 35, 50], labels: ['Good', 'Moderate', 'Poor', 'Very Poor', 'Hazardous'], unit: 'µg/m³' },
+  CO: { thresholds: [1, 2, 4], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'mg/m³' },
+  CO2: { thresholds: [400, 1000, 2000], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'ppm' },
+  NO2: { thresholds: [50, 100, 200], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'µg/m³' },
+  O3: { thresholds: [60, 120, 180], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'µg/m³' },
+  SO2: { thresholds: [50, 100, 200], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'µg/m³' },
+  NO: { thresholds: [50, 100, 200], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'µg/m³' },
+  C6H6: { thresholds: [2, 5, 10], labels: ['Good', 'Moderate', 'Poor', 'Very Poor'], unit: 'µg/m³' }
+};
+
+export interface SensorValueRow {
+  station: string;
+  operator: string | null;
+  value: number;
+  feature: SensorGeoJsonFeature;
+}
+
+export function sensorStationName(feature: SensorGeoJsonFeature): string {
+  return String(feature.properties.object || feature.properties.station_name || 'Sensor');
+}
+
+export function sensorNumericValue(feature: SensorGeoJsonFeature, parameter: string): number | null {
+  return pickMeasurementValue(feature.properties as Record<string, unknown>, parameter);
+}
+
+export function listSensorValues(
+  sensors: SensorGeoJsonFeature[],
+  parameter: string
+): SensorValueRow[] {
+  const rows: SensorValueRow[] = [];
+  for (const feature of sensors) {
+    const value = sensorNumericValue(feature, parameter);
+    if (value == null) continue;
+    rows.push({
+      station: sensorStationName(feature),
+      operator: (feature.properties.operator as string) || null,
+      value,
+      feature
+    });
+  }
+  return rows;
+}
+
+export function matchesQualityLevel(value: number, parameter: string, qualityLevel: string): boolean {
+  const config = QUALITY_CONFIG[parameter];
+  if (!config) return false;
+  const level = qualityLevel.toLowerCase().replace(/\s+/g, '');
+  const labels = config.labels.map((l) => l.toLowerCase().replace(/\s+/g, ''));
+  const labelIndex = labels.indexOf(level);
+  if (labelIndex === -1) return false;
+  const { thresholds } = config;
+  if (labelIndex === 0) return value <= thresholds[0];
+  if (labelIndex === labels.length - 1) return value > thresholds[thresholds.length - 1];
+  return value > thresholds[labelIndex - 1] && value <= thresholds[labelIndex];
+}
+
+export function matchesValueExpression(value: number, filterValue: string): boolean {
+  const match = String(filterValue).trim().match(/^(>=|<=|>|<|==|=)\s*(.+)$/);
+  if (!match) return false;
+  const op = match[1];
+  const threshold = parseFloat(match[2]);
+  if (Number.isNaN(threshold)) return false;
+  if (op === '>') return value > threshold;
+  if (op === '>=') return value >= threshold;
+  if (op === '<') return value < threshold;
+  if (op === '<=') return value <= threshold;
+  if (op === '==' || op === '=') return value === threshold;
+  return false;
+}
+
+/**
+ * Evaluate a value-related filter against ALL live station readings for a parameter.
+ * Supports quality bands, numeric comparisons, and rank (worst/best/top:N).
+ */
+export async function evaluateSensorValueFilter(options: {
+  filterType: 'quality' | 'value' | 'rank';
+  filterValue: string;
+  parameter: string;
+  operator?: string | null;
+  rankLimit?: number;
+}): Promise<{
+  parameter: string;
+  parameterFull: string;
+  operator: OperatorName | null;
+  all: SensorValueRow[];
+  matching: SensorValueRow[];
+  matchingFeatures: SensorGeoJsonFeature[];
+  highest: SensorValueRow | null;
+  lowest: SensorValueRow | null;
+}> {
+  const parameter = resolveParameterAbbrev(options.parameter);
+  if (!parameter) {
+    throw new Error('parameter is required for value filters');
+  }
+  const loaded = await loadSensorNetwork({
+    operator: options.operator,
+    parameter
+  });
+  const all = listSensorValues(loaded.sensors, parameter);
+  const highest = all.length
+    ? all.reduce((a, b) => (b.value > a.value ? b : a))
+    : null;
+  const lowest = all.length
+    ? all.reduce((a, b) => (b.value < a.value ? b : a))
+    : null;
+
+  let matching: SensorValueRow[] = [];
+  const raw = String(options.filterValue).trim();
+  const lower = raw.toLowerCase();
+
+  if (options.filterType === 'quality') {
+    matching = all.filter((row) => matchesQualityLevel(row.value, parameter, raw));
+  } else if (options.filterType === 'value') {
+    // Allow rank keywords via filterType=value as a convenience
+    if (['worst', 'highest', 'max', 'maximum'].includes(lower)) {
+      matching = [...all].sort((a, b) => b.value - a.value).slice(0, options.rankLimit ?? 1);
+    } else if (['best', 'lowest', 'min', 'minimum'].includes(lower)) {
+      matching = [...all].sort((a, b) => a.value - b.value).slice(0, options.rankLimit ?? 1);
+    } else {
+      matching = all.filter((row) => matchesValueExpression(row.value, raw));
+    }
+  } else {
+    // rank
+    const topMatch = lower.match(/^top\s*:?\s*(\d+)$/);
+    const bottomMatch = lower.match(/^(bottom|lowest)\s*:?\s*(\d+)$/);
+    const limit = options.rankLimit
+      ?? (topMatch ? parseInt(topMatch[1], 10) : bottomMatch ? parseInt(bottomMatch[2], 10) : 5);
+    const n = Math.max(1, Math.min(limit || 5, all.length || 1));
+    if (['worst', 'highest', 'max', 'maximum'].includes(lower) || topMatch) {
+      matching = [...all].sort((a, b) => b.value - a.value).slice(0, n);
+    } else if (['best', 'lowest', 'min', 'minimum'].includes(lower) || bottomMatch) {
+      matching = [...all].sort((a, b) => a.value - b.value).slice(0, n);
+    } else {
+      throw new Error(
+        `Unknown rank filter "${raw}". Use worst/highest, best/lowest, top:N, or bottom:N.`
+      );
+    }
+  }
+
+  return {
+    parameter,
+    parameterFull: parameterFullName(parameter),
+    operator: loaded.operator,
+    all,
+    matching,
+    matchingFeatures: matching.map((row) => ({
+      ...row.feature,
+      properties: {
+        ...row.feature.properties,
+        currentValue: row.value
+      }
+    })),
+    highest,
+    lowest
+  };
+}
+
 /** Latest measurements for one station (searches the matching operator, then all). */
 export async function fetchStationLastMeasurements(
   stationName: string

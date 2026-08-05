@@ -9,12 +9,14 @@ import fetch from 'node-fetch';
 import { tracer, THING_IDS, SECURITY_SCHEME, USER_AGENT, createEmitEvent, httpForm, mqttEventForm } from './shared';
 import {
   OPERATOR_NAMES,
+  QUALITY_CONFIG,
   loadSensorNetwork,
   resolveOperator,
   resolveParameterAbbrev,
   parameterFullName,
   pickMeasurementValue,
-  fetchStationLastMeasurements
+  fetchStationLastMeasurements,
+  evaluateSensorValueFilter
 } from '../sofiaSensors';
 
 const TITLE = 'api';
@@ -192,22 +194,30 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filters already-loaded sensor pins on the map without refetching. filterType: quality (good/moderate/poor/very poor/hazardous), value (e.g. ">50", "<20"), operator, or name (station id like AT12). For quality/value you MUST pass parameter (e.g. PM2.5). Prefer loadSensors with that parameter first so pins are colored by the metric. For "worst/highest" readings prefer loadSensors(parameter) rather than filtering only "hazardous".',
+        description: 'Filter Sofia sensor stations. For ANY value question (quality bands, thresholds, worst/best), uses filterType quality|value|rank with parameter (PM2.5, NO2, …): the server fetches ALL live station readings for that parameter, evaluates them, and shows only matches (with facts: match count, highest/lowest). quality: good/moderate/poor/very poor/hazardous. value: ">20", "<50", or worst/best. rank: worst|best|top:5|bottom:5. operator/name only hide already-loaded pins by operator or station id (AT12) — do NOT use name for schools.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
-              enum: ['quality', 'value', 'operator', 'name'],
-              description: 'Which filter to apply'
+              enum: ['quality', 'value', 'rank', 'operator', 'name'],
+              description: 'quality/value/rank evaluate all live readings server-side; operator/name filter pins already on the map'
             },
             filterValue: {
               type: 'string',
-              description: 'Filter criterion (quality level, numeric expression, operator name, or station name substring)'
+              description: 'quality level, numeric expression (">20"), rank keyword (worst/best/top:5), operator name, or station id substring'
             },
             parameter: {
               type: 'string',
-              description: 'Required for quality/value filters. Parameter abbreviation (PM10, PM2.5, NO2, …). Values are read from each station even if sensors were loaded without a parameter.'
+              description: 'Required for quality/value/rank. Parameter abbreviation (PM10, PM2.5, NO2, …).'
+            },
+            operator: {
+              type: 'string',
+              description: 'Optional operator scope when evaluating value filters (Airthings / City Lab / EXEA).'
+            },
+            limit: {
+              type: 'number',
+              description: 'For rank/worst/best: how many stations to keep (default 1 for worst/best via value, 5 for rank).'
             },
             userId: { type: 'string' }
           },
@@ -505,29 +515,115 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         return { error: true, message: 'filterType and filterValue are required' };
       }
 
+      const filterType = String(input.filterType);
+      let filterValue = String(input.filterValue);
       let parameter: string | null = null;
       if (input.parameter) {
         parameter = resolveParameterAbbrev(input.parameter);
       }
-      if ((input.filterType === 'quality' || input.filterType === 'value') && !parameter) {
+
+      // Value questions: fetch ALL live readings, evaluate server-side, reload matching pins.
+      if (filterType === 'quality' || filterType === 'value' || filterType === 'rank') {
+        if (!parameter) {
+          return {
+            error: true,
+            message: `parameter is required for ${filterType} filters (e.g. PM2.5, NO2, PM10).`
+          };
+        }
+
+        const evaluated = await evaluateSensorValueFilter({
+          filterType: filterType as 'quality' | 'value' | 'rank',
+          filterValue,
+          parameter,
+          operator: input.operator,
+          rankLimit: typeof input.limit === 'number' ? input.limit : undefined
+        });
+
+        const unit = QUALITY_CONFIG[evaluated.parameter]?.unit || '';
+        const matchList = evaluated.matching
+          .slice(0, 8)
+          .map((r) => `${r.station}=${r.value}${unit ? ` ${unit}` : ''}`)
+          .join(', ');
+
+        let userMessage: string;
+        if (evaluated.all.length === 0) {
+          userMessage = `No live ${evaluated.parameter} readings are available from the sensor network.`;
+        } else if (evaluated.matching.length === 0) {
+          const hi = evaluated.highest;
+          userMessage = `None of the ${evaluated.all.length} stations with ${evaluated.parameter} match ${filterType} "${filterValue}".`
+            + (hi
+              ? ` Highest current ${evaluated.parameter} is ${hi.value}${unit ? ` ${unit}` : ''} at ${hi.station}.`
+              : '');
+        } else if (filterType === 'rank' || ['worst', 'best', 'highest', 'lowest', 'max', 'min', 'maximum', 'minimum'].includes(filterValue.toLowerCase())) {
+          userMessage = `Checked all ${evaluated.all.length} stations for ${evaluated.parameter}. `
+            + `Showing ${evaluated.matching.length}: ${matchList}.`;
+        } else {
+          userMessage = `${evaluated.matching.length} of ${evaluated.all.length} stations match ${filterType} "${filterValue}" for ${evaluated.parameter}`
+            + (matchList ? `: ${matchList}` : '.')
+            + (evaluated.matching.length > 8 ? '…' : '');
+          if (!userMessage.endsWith('.') && !userMessage.endsWith('…')) userMessage += '.';
+        }
+
+        await emitEvent('sensorsChanged', {
+          action: 'load',
+          userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
+          operator: evaluated.operator,
+          parameter: evaluated.parameter,
+          sensors: evaluated.matchingFeatures,
+          sensorCount: evaluated.matchingFeatures.length,
+          show: true,
+          filterType,
+          filterValue,
+          appliedResult: { description: userMessage },
+          timestamp: new Date().toISOString()
+        });
+
         return {
-          error: true,
-          message: `parameter is required for ${input.filterType} filters (e.g. PM2.5, NO2, PM10).`
+          success: true,
+          message: userMessage,
+          userMessage,
+          filterType,
+          filterValue,
+          parameter: evaluated.parameter,
+          facts: {
+            checkedCount: evaluated.all.length,
+            matchCount: evaluated.matching.length,
+            parameter: evaluated.parameter,
+            highest: evaluated.highest
+              ? { station: evaluated.highest.station, value: evaluated.highest.value }
+              : null,
+            lowest: evaluated.lowest
+              ? { station: evaluated.lowest.station, value: evaluated.lowest.value }
+              : null,
+            matches: evaluated.matching.map((r) => ({
+              station: r.station,
+              value: r.value,
+              operator: r.operator
+            }))
+          },
+          uiEffect: {
+            needsAck: true,
+            timeoutMs: 8000,
+            summary: `Show ${evaluated.matching.length} sensors matching ${filterType} ${filterValue}`
+          }
         };
       }
-      let filterValue = String(input.filterValue);
-      if (input.filterType === 'operator') {
+
+      // Pin-only filters (no live value re-fetch)
+      if (filterType === 'operator') {
         filterValue = resolveOperator(filterValue) || filterValue;
       }
 
-      const userMessage = `Sensor pins are now filtered by ${input.filterType}: ${filterValue}${parameter ? ` (${parameter})` : ''}.`;
+      const userMessage = `Sensor pins are now filtered by ${filterType}: ${filterValue}${parameter ? ` (${parameter})` : ''}.`;
 
       await emitEvent('sensorsChanged', {
         action: 'filter',
         userId,
         requestId: input?._requestId ?? null,
         toolCallId: input?._toolCallId ?? null,
-        filterType: input.filterType,
+        filterType,
         filterValue,
         parameter,
         appliedResult: { description: userMessage },
@@ -538,13 +634,13 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         success: true,
         message: userMessage,
         userMessage,
-        filterType: input.filterType,
+        filterType,
         filterValue,
         parameter,
         uiEffect: {
           needsAck: true,
           timeoutMs: 5000,
-          summary: `Filter sensors by ${input.filterType}`
+          summary: `Filter sensors by ${filterType}`
         }
       };
     } catch (error) {
