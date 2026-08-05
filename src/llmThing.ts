@@ -1108,14 +1108,26 @@ async function main() {
     const uiStatus = await waitForUiStatus(toolCallId, timeoutMs);
     if (uiStatus) {
       console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
-      return { ...toolResult, uiStatus };
+      // Flatten the most important applied-result text for the model
+      const applied = uiStatus.details?.appliedResult;
+      return {
+        ...toolResult,
+        uiStatus: {
+          status: uiStatus.status,
+          summary: uiStatus.summary,
+          onMap: applied?.description || uiStatus.summary,
+          appliedResult: applied || null,
+          details: uiStatus.details || null
+        }
+      };
     }
     console.warn(`⚠️ [${requestId}] UI ack timeout for ${toolName}`);
     return {
       ...toolResult,
       uiStatus: {
         status: 'timeout',
-        summary: 'Server emitted the change, but the browser did not confirm it was applied within 3s'
+        summary: 'Server emitted the change, but the browser did not confirm it was applied in time',
+        onMap: null
       }
     };
   }
@@ -1337,7 +1349,7 @@ async function main() {
           ...conversation,
           {
             role: 'system',
-            content: 'Now provide your final answer to the user. Do not use any tools. Base your answer on the tool results, especially any uiStatus field (applied/failed/timeout) which reflects what the browser actually showed on the map.'
+            content: 'Now provide your final answer to the user. Do not use any tools. Prefer uiStatus.onMap / uiStatus.summary / uiStatus.appliedResult from tool results — these describe what is actually visible on the map (filters, colors, combine mode, tiles). If uiStatus.status is failed or timeout, say the map may not have updated.'
           }
         ];
 
@@ -1831,7 +1843,7 @@ async function main() {
                 ...conversation,
                 {
                   role: 'system',
-                  content: 'Now provide your final answer to the user. Do not use any tools. Base your answer on the tool results, especially any uiStatus field (applied/failed/timeout) which reflects what the browser actually showed on the map. Offer helpful follow-up suggestions.'
+                  content: 'Now provide your final answer to the user. Do not use any tools. Prefer uiStatus.onMap / uiStatus.summary / uiStatus.appliedResult from tool results — these describe what is actually visible on the map (filters, colors, combine mode, tiles). If uiStatus.status is failed or timeout, say the map may not have updated. Offer helpful follow-up suggestions.'
                 }
               ];
 
@@ -2216,7 +2228,10 @@ async function main() {
 
       console.log(
         `🖥️  UI status: user=${userId} kind=${report.kind} status=${report.status} ` +
-        `toolCallId=${report.toolCallId ?? '-'} — ${report.summary}`
+        `toolCallId=${report.toolCallId ?? '-'} — ${report.summary}` +
+        (report.details?.appliedResult
+          ? ` | appliedResult=${JSON.stringify(report.details.appliedResult)}`
+          : '')
       );
       resolveUiStatus(report);
       return { success: true };

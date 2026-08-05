@@ -50,8 +50,34 @@ window.lastCameraState = null;
     window.requireLoggedInUserId = requireLoggedInUserId;
 
     /**
+     * Build a clear human-readable summary of what the UI applied, from the
+     * server-provided appliedResult (filters, colors, tileset, …).
+     */
+    window.describeAppliedUiResult = function(payload, status) {
+      const ar = payload?.appliedResult;
+      if (ar?.description) {
+        return status === 'applied'
+          ? `On map now: ${ar.description}`
+          : `Failed to show on map: ${ar.description}`;
+      }
+      if (payload?.styleName) {
+        return status === 'applied'
+          ? `On map now: ${payload.styleName}`
+          : `Failed to apply on map: ${payload.styleName}`;
+      }
+      if (payload?.name || payload?.id) {
+        const label = payload.name || payload.id;
+        return status === 'applied'
+          ? `On map now: tileset ${payload.action || 'change'} — ${label}`
+          : `Failed tileset ${payload.action || 'change'} — ${label}`;
+      }
+      return status === 'applied' ? 'Map UI change applied' : 'Map UI change failed';
+    };
+
+    /**
      * Tell the LLM service whether a map UI change was actually applied.
      * Correlates via toolCallId so the planner can ground its final answer.
+     * summary + details.appliedResult should describe the concrete result.
      */
     window.reportUiStatus = async function(report) {
       try {

@@ -401,6 +401,10 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
               type: "object",
               description: "Complete Cesium 3D Tile Style definition with defines and color conditions"
             },
+            appliedResult: {
+              type: "object",
+              description: "Human-readable and structured description of what the filter/style does (filters, colors, combineMode, etc.) for UI ack and LLM final answers"
+            },
             timestamp: { type: "string", format: "date-time" }
           },
           required: ["style", "styleDefinition"]
@@ -973,6 +977,12 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           style: input.style,
           styleName: styleName,
           styleDefinition: styleDefinition,
+          appliedResult: {
+            action: 'setVisualizationStyle',
+            style: input.style,
+            styleName,
+            description: `All buildings are now colored by ${styleName} across the city`
+          },
           timestamp: new Date().toISOString()
         });      } catch (error) {
         console.error("Error emitting visualization style change event:", error);
@@ -1018,6 +1028,12 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             style: 'none',
             styleName: 'Default Style',
             styleDefinition: { show: true },
+            appliedResult: {
+              action: 'clearFilter',
+              style: 'none',
+              styleName: 'Default Style',
+              description: 'Building filter cleared; map reset to default building appearance'
+            },
             timestamp: new Date().toISOString()
           });
         } catch (error) {
@@ -1121,12 +1137,28 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       const filterStyleDefinition = { color: { conditions } };
 
       // ── Emit ─────────────────────────────────────────────────────────────
-      const styleLabel = resolvedFilters
-        .map((l) => `${l.filterType} ${l.filterValue}`)
-        .join(combineMode === 'AND' ? ' AND ' : ' OR ');
+      const describeLeg = (l: FilterLeg): string => {
+        const colorPart = l.color ? ` in ${l.color}` : '';
+        return `${l.filterType} ${l.filterValue}${colorPart}`;
+      };
+      const styleLabel = resolvedFilters.map(describeLeg).join(combineMode === 'AND' ? ' AND ' : ' OR ');
       const andLabel = sharedAndLegs.length > 0
-        ? ` AND ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')}`
+        ? `, also requiring ${sharedAndLegs.map((l) => `${l.filterType} ${l.filterValue}`).join(' AND ')}`
         : '';
+      const sharedColorNote = combineMode === 'AND' && input.color ? ` (highlight color: ${input.color})` : '';
+      const description =
+        `Highlighted buildings matching ${styleLabel}${andLabel}${sharedColorNote}; non-matching buildings shown in white`;
+
+      const appliedResult = {
+        action: 'filterBuildings',
+        combineMode,
+        filters: resolvedFilters,
+        andFilters: sharedAndLegs,
+        color: input.color || null,
+        nonMatching: 'white',
+        description
+      };
+
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
@@ -1135,6 +1167,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           style: 'custom_filter',
           styleName: `Filter: ${styleLabel}${andLabel}`,
           styleDefinition: filterStyleDefinition,
+          appliedResult,
           timestamp: new Date().toISOString()
         });
       } catch (error) {
@@ -1144,13 +1177,14 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
 
       return {
         success: true,
-        message: `Highlighted buildings matching [${styleLabel}${andLabel}] (${combineMode}), all others shown in white`,
+        message: description,
         filter: {
           filters: resolvedFilters,
           andFilters: sharedAndLegs,
           combineMode,
           style: filterStyleDefinition
-        }
+        },
+        appliedResult
       };
     } catch (error) {
       console.error('Error in filterBuildings handler:', error);
@@ -1188,6 +1222,13 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         url: SOFIA_TILESET.url,
         name: SOFIA_TILESET.name,
         show: SOFIA_TILESET.show,
+        appliedResult: {
+          action: 'loadTiles',
+          tilesetId: SOFIA_TILESET.id,
+          tilesetName: SOFIA_TILESET.name,
+          show: SOFIA_TILESET.show,
+          description: `Sofia's 3D building tiles (${SOFIA_TILESET.name}) are now loaded and visible on the map`
+        },
         timestamp: new Date().toISOString()
       };
       // Emit event for clients to load the tileset
@@ -1233,6 +1274,11 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           requestId: removeInput?._requestId ?? null,
           toolCallId: removeInput?._toolCallId ?? null,
           id: SOFIA_TILESET_ID,
+          appliedResult: {
+            action: 'removeTiles',
+            tilesetId: SOFIA_TILESET_ID,
+            description: "Sofia's 3D building tiles were removed from the map"
+          },
           timestamp: new Date().toISOString()
         });      } catch (error) {
         console.error("Error emitting tileset remove event:", error);

@@ -230,7 +230,12 @@ window.subscribeToWoTEvents = async function() {
               requestId: payload.requestId || null,
               toolCallId: payload.toolCallId || null,
               kind: 'tileset',
-              details: { action: payload.action, id: payload.id, name: payload.name }
+              details: {
+                action: payload.action,
+                id: payload.id,
+                name: payload.name,
+                appliedResult: payload.appliedResult || null
+              }
             };
 
             if (payload.action === 'remove') {              const primitives = window.viewer.scene.primitives;
@@ -254,7 +259,7 @@ window.subscribeToWoTEvents = async function() {
                 ...tilesAckBase,
                 status: 'applied',
                 summary: removed
-                  ? `Removed tileset from map: ${payload.name || payload.id}`
+                  ? (payload.appliedResult?.description || `Removed tileset from map: ${payload.name || payload.id}`)
                   : `Tileset remove requested (not found on map): ${payload.id}`
               });
             } else if (payload.action === 'add') {
@@ -286,15 +291,24 @@ window.subscribeToWoTEvents = async function() {
                       window.pendingVisualizationStyle = null;
                       // Ack the pending style apply (may have different toolCallId)
                       if (pending.toolCallId || pending.requestId) {
+                        const pendingPayload = {
+                          styleName: pending.styleName,
+                          style: pending.style,
+                          appliedResult: pending.appliedResult
+                        };
+                        const status = ok ? 'applied' : 'failed';
                         window.reportUiStatus({
                           requestId: pending.requestId || null,
                           toolCallId: pending.toolCallId || null,
                           kind: 'visualization',
-                          status: ok ? 'applied' : 'failed',
-                          summary: ok
-                            ? `Map style applied after tiles load: ${pending.styleName}`
-                            : `Failed to apply queued style after tiles load: ${pending.styleName}`,
-                          details: { style: pending.style, styleName: pending.styleName }
+                          status,
+                          summary: window.describeAppliedUiResult(pendingPayload, status),
+                          details: {
+                            style: pending.style,
+                            styleName: pending.styleName,
+                            appliedResult: pending.appliedResult || null,
+                            appliedAfterTilesLoad: true
+                          }
                         });
                       }
                     }
@@ -304,7 +318,8 @@ window.subscribeToWoTEvents = async function() {
                   window.reportUiStatus({
                     ...tilesAckBase,
                     status: 'applied',
-                    summary: `3D tiles loaded on map: ${payload.name || payload.id}`,
+                    summary: payload.appliedResult?.description
+                      || `3D tiles loaded on map: ${payload.name || payload.id}`,
                     details: { ...tilesAckBase.details, loadMs: Math.round(tilesetLoadTime) }
                   });
                 } catch (tilesetError) {
@@ -312,7 +327,7 @@ window.subscribeToWoTEvents = async function() {
                   window.reportUiStatus({
                     ...tilesAckBase,
                     status: 'failed',
-                    summary: `Failed to load tileset on map: ${tilesetError.message || String(tilesetError)}`
+                    summary: `Failed to load tileset on map: ${tilesetError.message || String(tilesetError)}. Intended: ${payload.appliedResult?.description || payload.name || payload.id}`
                   });
                   // window.addMessage(`Error loading tileset: ${tilesetError.message}`);
                 }
@@ -459,23 +474,27 @@ window.subscribeToWoTEvents = async function() {
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
 
           const styleName = payload.styleName || payload.style;
+          const details = {
+            style: payload.style,
+            styleName,
+            appliedResult: payload.appliedResult || null
+          };
           const ackBase = {
             requestId: payload.requestId || null,
             toolCallId: payload.toolCallId || null,
             kind: 'visualization',
-            details: { style: payload.style, styleName }
+            details
           };
           
           try {
             // Apply the visualization style using server-provided definition
             if (window.sofiaTileset && window.applyVisualizationStyle) {
               const ok = window.applyVisualizationStyle(payload.styleDefinition, styleName);
+              const status = ok ? 'applied' : 'failed';
               window.reportUiStatus({
                 ...ackBase,
-                status: ok ? 'applied' : 'failed',
-                summary: ok
-                  ? `Map style applied on screen: ${styleName}`
-                  : `Failed to apply map style on screen: ${styleName}`
+                status,
+                summary: window.describeAppliedUiResult(payload, status)
               });
             } else {
               // Queue style until Sofia tiles load; ack is sent when it is actually applied
@@ -484,7 +503,8 @@ window.subscribeToWoTEvents = async function() {
                 styleName,
                 requestId: payload.requestId || null,
                 toolCallId: payload.toolCallId || null,
-                style: payload.style
+                style: payload.style,
+                appliedResult: payload.appliedResult || null
               };
               console.log('[CityBot] visualization style queued until tiles load:', styleName);
             }
@@ -493,7 +513,7 @@ window.subscribeToWoTEvents = async function() {
             window.reportUiStatus({
               ...ackBase,
               status: 'failed',
-              summary: `Error applying map style: ${error.message || String(error)}`
+              summary: `Error applying on map: ${error.message || String(error)}. Intended: ${payload.appliedResult?.description || styleName}`
             });
           }
         };
