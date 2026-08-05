@@ -16,6 +16,92 @@ const TITLE = 'citymodel';
 // Sofia tileset ID constant - shared between load and remove actions
 const SOFIA_TILESET_ID = 'sofia-buildings-tileset';
 
+// ---------------------------------------------------------------------------
+// filterBuildings helpers
+// ---------------------------------------------------------------------------
+
+/** Valid filter type names accepted by the filterBuildings action. */
+const VALID_FILTER_TYPES = ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'] as const;
+type FilterType = typeof VALID_FILTER_TYPES[number];
+
+/** Default highlight colour per filter type. */
+const DEFAULT_FILTER_COLORS: Record<string, string> = {
+  'class':       'rgb(255, 255, 0)',
+  'walkability': 'rgb(88, 140, 126)',
+  'height':      'rgb(102, 71, 151)',
+  'energy':      'rgb(255, 239, 66)',
+  'energy LTB':  'rgb(255, 239, 66)',
+  'energy UTB':  'rgb(255, 140, 0)',
+  'uhi4':        'rgb(222, 54, 41)',
+  'uhi9':        'rgb(222, 54, 41)',
+};
+
+/**
+ * Convert a CSS colour string to a Cesium colour expression.
+ * rgb()/rgba() values are passed through unchanged; named colours and hex
+ * values are wrapped with color('…').
+ */
+function toCesiumColorExpr(value: string): string {
+  if (!value) return "color('white')";
+  const trimmed = String(value).trim();
+  return /^rgb(a)?\(/i.test(trimmed) ? trimmed : `color('${trimmed}')`;
+}
+
+/**
+ * Build a Cesium 3D Tiles boolean condition expression for one filter leg.
+ * Returns `{ expr }` on success or `{ error }` on bad input.
+ */
+function buildCesiumExpression(
+  filterType: string,
+  filterValue: string
+): { expr: string } | { error: string } {
+  switch (filterType) {
+    case 'class':
+      // Escape single quotes in the value just in case
+      return { expr: `\${feature['citygml_class_description']} === '${filterValue.replace(/'/g, "\\'")}'` };
+
+    case 'walkability': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid walkability value "${filterValue}". Use e.g. ">=80" or "50".` };
+      return { expr: `Number(\${feature['walk_access_index']}) ${m[1] || '>='} ${m[2]}` };
+    }
+
+    case 'height': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid height value "${filterValue}". Use e.g. ">=50" or "30".` };
+      return { expr: `Number(\${feature['citygml_measured_height']}) ${m[1] || '>='} ${m[2]}` };
+    }
+
+    case 'energy':
+    case 'energy LTB': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid energy LTB value "${filterValue}". Use e.g. "<=48".` };
+      return { expr: `Number(\${feature['energy_ti_ltb']}) ${m[1] || '<='} ${m[2]}` };
+    }
+
+    case 'energy UTB': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid energy UTB value "${filterValue}". Use e.g. ">=750".` };
+      return { expr: `Number(\${feature['energy_ti_utb']}) ${m[1] || '>='} ${m[2]}` };
+    }
+
+    case 'uhi4': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid uhi4 value "${filterValue}". Use e.g. ">=28".` };
+      return { expr: `Number(\${feature['t1600_max']}) ${m[1] || '>='} ${m[2]}` };
+    }
+
+    case 'uhi9': {
+      const m = filterValue.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+      if (!m) return { error: `Invalid uhi9 value "${filterValue}". Use e.g. ">=26".` };
+      return { expr: `Number(\${feature['t2100_max']}) ${m[1] || '>='} ${m[2]}` };
+    }
+
+    default:
+      return { error: `Unknown filterType "${filterType}". Must be one of: ${VALID_FILTER_TYPES.join(', ')}.` };
+  }
+}
+
 export async function exposeCityModelThing(WoT: any): Promise<any> {
   // Global camera state tracking
   let currentCameraState = {
@@ -454,25 +540,42 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'setVisualizationStyle', ['invokeaction'])
       },
       filterBuildings: {
-        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Filter types: class (building type like "healthcare", "schools, education, research"), walkability (score 0-100), height (meters), energy LTB/UTB (kWh/m²/year). Use operators for numeric filters (e.g., ">=80" for high walkability, "<=48" for efficient energy). Optionally specify a custom highlight color. Load Sofia 3D tiles first if not already loaded.',
+        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters and multi-condition AND/OR filters. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
-              enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'none'],
-              description: 'Type of filter: "class" (building type), "walkability" (index 0-100), "height" (meters), "energy LTB" (kWh/m²/year lower bound), "energy UTB" (kWh/m²/year upper bound), "none" (remove filter and show default style)'
+              enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'none'],
+              description: 'Filter type for single-condition use. Ignored when "filters" array is provided.'
             },
             filterValue: {
               type: 'string',
-              description: 'Value to filter by. For "class": exact building type names ("healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution"). For numeric filters, use operators with thresholds. **Guidance for choosing thresholds based on actual database statistics:** Walkability (0-100): high >=80, medium >=50, low <30. Height (meters): tall >=50, medium >=20, short <10. Energy LTB (Lower Bound, range 45-66+): efficient <=48, average 48-58, inefficient >=58. Energy UTB (Upper Bound, range 150-1050+): efficient <=300, average 300-750, inefficient >=750. Examples: ">=80" (high walkability), "<=48" (efficient energy LTB), ">=750" (inefficient energy UTB), ">=60" (tall buildings), "administration" (class filter).'
+              description: 'Filter value for single-condition use. Ignored when "filters" array is provided.'
             },
             color: {
               type: 'string',
-              description: 'Custom color for highlighting filtered buildings. Accepts CSS color formats: "red", "blue", "#FF0000", "rgb(255,0,0)", "rgba(255,0,0,0.8)". If not specified, uses default colors for each filter type.'
+              description: 'Highlight color for single-condition use or for AND multi-condition (all matching buildings share this color). Accepts CSS: "red", "#FF0000", "rgb(255,0,0)". Ignored when "filters" array items have their own color in OR mode.'
+            },
+            filters: {
+              type: 'array',
+              description: 'Multi-condition filter list. Each element selects a group of buildings. Use combineMode to control AND vs OR logic.',
+              items: {
+                type: 'object',
+                properties: {
+                  filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'] },
+                  filterValue: { type: 'string' },
+                  color: { type: 'string', description: 'Per-condition color used in OR mode. Optional in AND mode.' }
+                },
+                required: ['filterType', 'filterValue']
+              }
+            },
+            combineMode: {
+              type: 'string',
+              enum: ['AND', 'OR'],
+              description: 'How to combine the "filters" array. "AND" (default): only buildings matching ALL conditions are highlighted in a single shared color. "OR": each condition highlights independently in its own per-condition color.'
             }
-          },
-          required: ['filterType', 'filterValue']
+          }
         },
         output: { type: 'object' },
         forms: httpForm(TITLE, 'actions', 'filterBuildings', ['invokeaction'])
@@ -856,194 +959,133 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
   thing.setActionHandler('filterBuildings', async (params: any) => {
     const span = tracer.startSpan('filterBuildings');
     try {
-      let input;
-      if (params && typeof params.value === "function") {
+      let input: any;
+      if (params && typeof params.value === 'function') {
         input = await params.value();
       } else {
         input = params || {};
       }
 
       const userId = input?._userId ?? null;
-      // Validate input
-      if (!input.filterType) {
-        return {
-          error: true,
-          message: 'filterType is required'
-        };
-      }
 
-      // Handle 'none' filter type to reset to default style
+      // ── Reset ────────────────────────────────────────────────────────────
       if (input.filterType === 'none') {
         try {
           await emitEvent('visualizationStyleChanged', {
             userId,
             style: 'none',
             styleName: 'Default Style',
-            styleDefinition: { show: true }, // Default style - just show buildings
+            styleDefinition: { show: true },
             timestamp: new Date().toISOString()
-          });        } catch (error) {
-          console.error("Error emitting default style change event:", error);
+          });
+        } catch (error) {
+          console.error('Error resetting filter:', error);
           return { error: true, message: `Failed to reset visualization style: ${error}` };
         }
-
         return {
           success: true,
           message: 'Removed building filter and reset to default visualization style',
-          filter: {
-            type: 'none',
-            value: 'none',
-            style: { show: true }
-          }
+          filter: { type: 'none', style: { show: true } }
         };
       }
 
-      if (!input.filterValue) {
-        return {
-          error: true,
-          message: 'filterValue is required for filtering operations'
-        };
+      // ── Normalise to a resolvedFilters array ─────────────────────────────
+      // Multi-condition path: "filters" array takes priority.
+      // Single-condition path: wrap legacy filterType/filterValue fields.
+      type FilterLeg = { filterType: string; filterValue: string; color?: string };
+      let resolvedFilters: FilterLeg[];
+
+      if (Array.isArray(input.filters) && input.filters.length > 0) {
+        resolvedFilters = input.filters;
+      } else if (input.filterType && input.filterValue) {
+        resolvedFilters = [{ filterType: input.filterType, filterValue: input.filterValue, color: input.color }];
+      } else {
+        return { error: true, message: 'Provide either filterType+filterValue or a non-empty filters array.' };
       }
 
-      const validFilterTypes = ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9'];
-      if (!validFilterTypes.includes(input.filterType)) {
-        return {
-          error: true,
-          message: `Invalid filterType. Must be one of: ${validFilterTypes.join(', ')}`
-        };
+      // Validate every leg
+      for (const leg of resolvedFilters) {
+        if (!VALID_FILTER_TYPES.includes(leg.filterType as FilterType)) {
+          return { error: true, message: `Invalid filterType "${leg.filterType}". Valid values: ${VALID_FILTER_TYPES.join(', ')}.` };
+        }
+        if (!leg.filterValue) {
+          return { error: true, message: `filterValue is required for filterType "${leg.filterType}".` };
+        }
       }
 
-      // Create a custom style that highlights matching buildings while keeping others white
-      let filterStyleDefinition: any = { show: true };
+      // ── Build Cesium conditions ──────────────────────────────────────────
+      const combineMode: 'AND' | 'OR' = input.combineMode === 'OR' ? 'OR' : 'AND';
 
-      // Get custom color or use default
-      const customColor = input.color || null;
+      let conditions: [string, string][];
 
-      // Helper to produce a valid Cesium color expression:
-      // - If value already looks like rgb()/rgba(), pass through
-      // - Otherwise wrap with color('...') so names like "blue" or hex like "#00F" work
-      const toCesiumColorExpr = (value: string): string => {
-        if (!value) return "color('white')";
-        const trimmed = String(value).trim();
-        return /^rgb(a)?\(/i.test(trimmed) ? trimmed : `color('${trimmed}')`;
-      };
-
-      if (input.filterType === 'class') {
-        // Highlight specific building class in color, keep others white
-        const defaultColor = BUILDING_CLASS_COLORS[input.filterValue] || 'rgb(255, 255, 0)'; // Yellow as fallback
-        const highlightColor = customColor || defaultColor;
-        const highlightExpr = toCesiumColorExpr(highlightColor);
-        filterStyleDefinition = {
-          color: {
-            conditions: [
-              ["${feature['citygml_class_description']} === '" + input.filterValue + "'", highlightExpr],
-              ["true", "color('white')"]
-            ]
-          }
-        };
-      } else if (input.filterType === 'walkability') {
-        // Walkability filtering - parse operator and value from filterValue
-        const match = input.filterValue.match(/^([><=]+)?\s*(\d+\.?\d*)$/);
-        if (!match) {
-          return { error: true, message: `Invalid walkability filter value. Expected format: ">=80" or "50"` };
+      if (combineMode === 'AND') {
+        // All legs joined with &&; buildings must satisfy every condition.
+        const expressions: string[] = [];
+        for (const leg of resolvedFilters) {
+          const result = buildCesiumExpression(leg.filterType, leg.filterValue);
+          if ('error' in result) return { error: true, message: result.error };
+          expressions.push(result.expr);
         }
-        const operator = match[1] || '>=';
-        const value = match[2];
-        const highlightColor = customColor || "rgb(88, 140, 126)"; // Default teal color
-        const highlightExpr = toCesiumColorExpr(highlightColor);
+        const combinedExpr = expressions.join(' && ');
 
-        filterStyleDefinition = {
-          color: {
-            conditions: [
-              ["Number(${feature['walk_access_index']}) " + operator + " " + value, highlightExpr],
-              ["true", "color('white')"]
-            ]
-          }
-        };
-      } else if (input.filterType === 'height') {
-        // Height filtering - parse operator and value from filterValue
-        const match = input.filterValue.match(/^([><=]+)?\s*(\d+\.?\d*)$/);
-        if (!match) {
-          return { error: true, message: `Invalid height filter value. Expected format: ">=60" or "50"` };
+        // Shared colour: top-level color → first leg color → default for first filterType
+        const firstLeg = resolvedFilters[0];
+        const sharedColor = input.color
+          || firstLeg.color
+          || (firstLeg.filterType === 'class'
+              ? BUILDING_CLASS_COLORS[firstLeg.filterValue] || DEFAULT_FILTER_COLORS['class']
+              : DEFAULT_FILTER_COLORS[firstLeg.filterType] || 'rgb(255, 255, 0)');
+
+        conditions = [
+          [combinedExpr, toCesiumColorExpr(sharedColor)],
+          ["true", "color('white')"]
+        ];
+      } else {
+        // OR mode: each leg gets its own colour and its own conditions entry.
+        const legConditions: [string, string][] = [];
+        for (const leg of resolvedFilters) {
+          const result = buildCesiumExpression(leg.filterType, leg.filterValue);
+          if ('error' in result) return { error: true, message: result.error };
+          const colour = leg.color
+            || (leg.filterType === 'class'
+                ? BUILDING_CLASS_COLORS[leg.filterValue] || DEFAULT_FILTER_COLORS['class']
+                : DEFAULT_FILTER_COLORS[leg.filterType] || 'rgb(255, 255, 0)');
+          legConditions.push([result.expr, toCesiumColorExpr(colour)]);
         }
-        const operator = match[1] || '>=';
-        const value = match[2];
-        const highlightColor = customColor || "rgb(102, 71, 151)"; // Default purple color
-        const highlightExpr = toCesiumColorExpr(highlightColor);
-
-        filterStyleDefinition = {
-          color: {
-            conditions: [
-              ["Number(${feature['citygml_measured_height']}) " + operator + " " + value, highlightExpr],
-              ["true", "color('white')"]
-            ]
-          }
-        };
-      } else if (input.filterType === 'energy' || input.filterType === 'energy LTB') {
-        // Energy LTB filtering - parse operator and value from filterValue
-        const match = input.filterValue.match(/^([><=]+)?\s*(\d+\.?\d*)$/);
-        if (!match) {
-          return { error: true, message: `Invalid energy filter value. Expected format: "<=48" or "58"` };
-        }
-        const operator = match[1] || '<=';
-        const value = match[2];
-        const highlightColor = customColor || "rgb(255, 239, 66)"; // Default yellow color
-        const highlightExpr = toCesiumColorExpr(highlightColor);
-
-        filterStyleDefinition = {
-          color: {
-            conditions: [
-              ["Number(${feature['energy_ti_ltb']}) " + operator + " " + value, highlightExpr],
-              ["true", "color('white')"]
-            ]
-          }
-        };
-      } else if (input.filterType === 'energy UTB') {
-        // Energy UTB filtering - parse operator and value from filterValue
-        const match = input.filterValue.match(/^([><=]+)?\s*(\d+\.?\d*)$/);
-        if (!match) {
-          return { error: true, message: `Invalid energy UTB filter value. Expected format: ">=750" or "300"` };
-        }
-        const operator = match[1] || '>=';
-        const value = match[2];
-        const highlightColor = customColor || "rgb(255, 140, 0)"; // Default orange color for UTB
-        const highlightExpr = toCesiumColorExpr(highlightColor);
-
-        filterStyleDefinition = {
-          color: {
-            conditions: [
-              ["Number(${feature['energy_ti_utb']}) " + operator + " " + value, highlightExpr],
-              ["true", "color('white')"]
-            ]
-          }
-        };
+        conditions = [...legConditions, ["true", "color('white')"]];
       }
 
-      // Emit event with the custom filter style
+      const filterStyleDefinition = { color: { conditions } };
+
+      // ── Emit ─────────────────────────────────────────────────────────────
+      const styleLabel = resolvedFilters
+        .map((l) => `${l.filterType} ${l.filterValue}`)
+        .join(combineMode === 'AND' ? ' AND ' : ' OR ');
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
           style: 'custom_filter',
-          styleName: `Filter: ${input.filterType} ${input.filterValue}`,
+          styleName: `Filter: ${styleLabel}`,
           styleDefinition: filterStyleDefinition,
           timestamp: new Date().toISOString()
-        });      } catch (error) {
-        console.error("Error emitting filter visualization:", error);
+        });
+      } catch (error) {
+        console.error('Error emitting filter visualization:', error);
         return { error: true, message: `Failed to emit filter visualization: ${error}` };
       }
 
       return {
         success: true,
-        message: `Highlighted buildings matching filter ${input.filterType} ${input.filterValue} in ${customColor ? 'custom color' : 'default color'}, all others shown in white`,
+        message: `Highlighted buildings matching [${styleLabel}] (${combineMode}), all others shown in white`,
         filter: {
-          type: input.filterType,
-          value: input.filterValue,
-          color: customColor || 'default',
+          filters: resolvedFilters,
+          combineMode,
           style: filterStyleDefinition
         }
       };
     } catch (error) {
-      console.error("Error in filterBuildings handler:", error);
-      return { error: true, message: "Failed to filter buildings" };
+      console.error('Error in filterBuildings handler:', error);
+      return { error: true, message: 'Failed to filter buildings' };
     } finally {
       span.end();
     }
