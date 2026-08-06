@@ -199,6 +199,52 @@ function parseRateLimitWaitMs(error: any): number {
   return 2000;
 }
 
+function isInsufficientCreditsError(error: unknown): boolean {
+  const e = error as any;
+  const msg = String(e?.message ?? error ?? '').toLowerCase();
+  const code = String(e?.code ?? e?.error?.code ?? '').toLowerCase();
+  return (
+    code === 'insufficient_quota'
+    || msg.includes('insufficient_quota')
+    || msg.includes('no credits remaining')
+    || msg.includes('insufficient credits')
+    || (msg.includes('credits') && msg.includes('billing'))
+  );
+}
+
+/**
+ * Map raw OpenAI / network failures to a short message suitable for end users.
+ * Keep technical detail in server logs only.
+ */
+function formatUserFacingModelError(error: unknown): string {
+  const e = error as any;
+  const msg = String(e?.message ?? error ?? '');
+  const lower = msg.toLowerCase();
+  const status = e?.status ?? e?.statusCode;
+  const code = String(e?.code ?? e?.error?.code ?? '').toLowerCase();
+
+  if (isInsufficientCreditsError(error)) {
+    return "Out of credits. Please try again later!";
+  }
+  if (status === 429 || code === 'rate_limit_exceeded' || lower.includes('rate limit') || lower.includes('tpm') || lower.includes('rpm')) {
+    return "I'm getting too many requests at the moment. Please wait a few seconds and try again.";
+  }
+  if (status === 401 || status === 403 || lower.includes('incorrect api key') || lower.includes('invalid_api_key')) {
+    return "The AI service could not authenticate. Please ask an administrator to check the API configuration.";
+  }
+  if (
+    e?.name === 'AbortError'
+    || lower.includes('timeout')
+    || lower.includes('timed out')
+  ) {
+    return 'The request took too long to complete. Please try again.';
+  }
+  if (status === 500 || status === 502 || status === 503 || status === 504 || lower.includes('overloaded')) {
+    return 'The AI service is temporarily unavailable. Please try again in a moment.';
+  }
+  return "Something went wrong while generating a reply. Please try again.";
+}
+
 /** Limits concurrent OpenAI calls so multi-user traffic stays under TPM burst. */
 class ConcurrencyLimiter {
   private running = 0;
@@ -237,8 +283,12 @@ async function withOpenAiRetry<T>(
       } catch (e: any) {
         lastError = e;
         if (e?.status === 429 && attempt < maxAttempts - 1) {
+          if (isInsufficientCreditsError(e)) {
+            // Quota/billing failures will not recover by waiting.
+            throw e;
+          }
           const waitMs = parseRateLimitWaitMs(e);
-          console.warn(`⚠️ ${label} — 429 TPM rate limit, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxAttempts})`);
+          console.warn(`⚠️ ${label} — 429 rate limit, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxAttempts})`);
           await new Promise((res) => setTimeout(res, waitMs));
           continue;
         }
@@ -1504,7 +1554,7 @@ async function main() {
         error: false
       };
     } catch (error: any) {
-      return { error: true, message: String(error?.message || error) };
+      return { error: true, message: formatUserFacingModelError(error) };
     } finally {
       span.end();
     }
@@ -1666,23 +1716,22 @@ async function main() {
               const planningElapsedMs = Date.now() - planningStartMs;
               console.error(`❌ Model failed | Turn ${planningTurn} | ${planningElapsedMs}ms | ${modelError?.message || 'Unknown error'}`);
               
-              // Emit error event to client
+              const userMessage = formatUserFacingModelError(modelError);
               emitLLMEvent(userId, 'conversationStream', { 
                 requestId, 
                 token: '', 
                 isFinal: true, 
                 error: true,
                 metadata: { 
-                  error: `Model call failed on planning turn ${planningTurn}: ${modelError?.message || 'Unknown error'}`,
-                  errorType: typeof modelError,
-                  errorCode: modelError?.code,
-                  errorStatus: modelError?.status,
+                  response: userMessage,
+                  error: userMessage,
+                  errorStatus: modelError?.status ?? null,
+                  errorCode: modelError?.code ?? null,
                   planningTurn: planningTurn,
                   maxTurns: maxPlanningTurns
                 } 
               });
-              
-              throw new Error(`Model call failed on planning turn ${planningTurn}: ${modelError?.message || 'Unknown error'}`);
+              return;
             }
             
             const planningElapsedMs = Date.now() - planningStartMs;
@@ -2059,7 +2108,15 @@ async function main() {
           const historyLength = JSON.stringify(conversationHistory).length;
           const toolMsgCount = conversationHistory.filter(m => m.role === 'tool').length;
         } catch (err) {
-          emitLLMEvent(userId, 'conversationStream', { requestId, token: '', isFinal: true, metadata: { error: String(err) } });
+          const userMessage = formatUserFacingModelError(err);
+          console.error(`❌ [${requestId}] stream failed:`, err);
+          emitLLMEvent(userId, 'conversationStream', {
+            requestId,
+            token: '',
+            isFinal: true,
+            error: true,
+            metadata: { response: userMessage, error: userMessage }
+          });
         }
       })();
 

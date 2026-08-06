@@ -117,6 +117,26 @@ window.subscribeToWoTEvents = async function() {
           } else if (payload.isFinal) {
             window.conversationStreamStats.finalMessages++;
 
+            // Friendly model/API failures (credits, rate limit, timeout, …)
+            if (payload.error || payload.metadata?.error) {
+              document.querySelectorAll('.thinking').forEach(thinkingMsg => {
+                thinkingMsg.remove();
+              });
+              const errText = payload.metadata?.response
+                || payload.metadata?.error
+                || 'Something went wrong while generating a reply. Please try again.';
+              if (!window.streamMessageContentEl) {
+                window.addMessage(errText, false);
+              } else {
+                window.streamMessageContentEl.innerHTML = window.markdownToHtml(errText);
+              }
+              window.streamAccumulatedText = '';
+              window.streamMessageContentEl = null;
+              document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+              if (typeof window.unlockUI === 'function') window.unlockUI();
+              return;
+            }
+
             // Handle case where we get final response without any streaming tokens
             if (payload.metadata?.response && (!window.streamAccumulatedText || window.streamAccumulatedText.trim() === '')) {
               if (!window.streamMessageContentEl) {
