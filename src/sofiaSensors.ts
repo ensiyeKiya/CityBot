@@ -265,6 +265,34 @@ export async function fetchAllLastMeasurements(): Promise<StationMeasurement[]> 
   return sofiaSensorsFetch<StationMeasurement[]>('stations/lastmeasurements');
 }
 
+/**
+ * Merge last measurements from every operator.
+ * Prefer this over fetchAllLastMeasurements — the global endpoint often omits
+ * or strips pollutants for some operators (e.g. Sofia municipality PM10).
+ */
+export async function fetchMergedLastMeasurements(): Promise<StationMeasurement[]> {
+  const batches = await Promise.all(
+    OPERATOR_NAMES.map((op) => fetchOperatorLastMeasurements(op))
+  );
+  const byStation = new Map<string, StationMeasurement>();
+  for (const rows of batches) {
+    for (const row of rows) {
+      const key = String(row.station_name || '').toUpperCase();
+      if (!key) continue;
+      const prev = byStation.get(key);
+      if (!prev) {
+        byStation.set(key, row);
+        continue;
+      }
+      // Prefer the row that has more non-null readings.
+      const score = (m: StationMeasurement) =>
+        Object.values(m.measurements || {}).filter((v) => v !== null && v !== undefined).length;
+      if (score(row) >= score(prev)) byStation.set(key, row);
+    }
+  }
+  return [...byStation.values()];
+}
+
 export async function fetchOperatorLastMeasurements(
   operator: OperatorName
 ): Promise<StationMeasurement[]> {
@@ -349,7 +377,7 @@ export async function loadSensorNetwork(options: {
 
   const measurements = operator
     ? await fetchOperatorLastMeasurements(operator)
-    : await fetchAllLastMeasurements();
+    : await fetchMergedLastMeasurements();
 
   const measurementsByStation = new Map<string, StationMeasurement>();
   for (const m of measurements) {
