@@ -76,13 +76,13 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
     },
     actions: {
       replayPollution: {
-        description: `Replays air pollution visually on the 3D map using animated colored clouds over a time period. Each cloud represents a grid point and changes color based on pollution levels following the CAQI daily standard (green=good, yellow=moderate, orange=poor, red=very poor, dark red=hazardous). Use this when the user asks to "show pollution", "replay pollution", "visualize air quality" for a specific time period and city. The frontend will animate the cloud colors hour by hour. IMPORTANT: You MUST specify the "city" parameter. Available cities: ${availableCities.join(', ')}. If no city is mentioned, default to "Sofia".`,
+        description: `Replays HISTORICAL measured air pollution on the 3D map as animated colored clouds. Use for past/observed periods only ("show pollution yesterday", "replay PM10 last week"). Do NOT use for forecasts, predictions, or future hours — use replayPrediction instead. Colors follow CAQI daily standard (green=good … dark red=hazardous). Available cities: ${availableCities.join(', ')}. If no city is mentioned, default to "Sofia".`,
         input: {
           type: 'object',
           properties: {
             startDate: {
               type: 'string',
-              description: 'Start date/time in ISO format (e.g. "2024-01-15T08:00:00"). Data available from 2017-02-20.'
+              description: 'Start date/time in ISO format for HISTORICAL data only (e.g. "2024-01-15T08:00:00"). Must not be in the future. Data available from 2017-02-20 to present.'
             },
             hours: {
               type: 'number',
@@ -120,7 +120,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         forms: httpForm(TITLE, 'actions', 'replayPollution', ['invokeaction'])
       },
       replayPrediction: {
-        description: `Replays predicted/forecasted PM10 air pollution on the 3D map using animated colored clouds. Use this when the user asks to "show prediction", "forecast pollution", "predict air quality", or "show future pollution". Only PM10 predictions are available. Colors follow CAQI daily standard (green=good, yellow=moderate, orange=poor, red=very poor, dark red=hazardous). Available cities: ${availableCities.join(', ')}. Available forecast horizons: ${horizonSummary}. If no city is mentioned, default to "Sofia".`,
+        description: `Replays FORECAST / predicted PM10 air pollution on the 3D map as animated colored clouds. Use when the user asks for "prediction", "forecast", "future pollution", "next 24 hours", or "predicted air quality". Do NOT pass startDate — the forecast window comes from the ML model. Only PM10. Available cities: ${availableCities.join(', ')}. Available forecast horizons: ${horizonSummary}. Default city: Sofia.`,
         input: {
           type: 'object',
           properties: {
@@ -193,6 +193,18 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         return { error: true, message: 'startDate is required (ISO format, e.g. "2024-01-15T08:00:00")' };
       }
 
+      const startMs = Date.parse(startDate);
+      if (!Number.isNaN(startMs) && startMs > Date.now() + 60 * 60 * 1000) {
+        const userMessage =
+          'That looks like a future time. Historical pollution replay cannot show forecasts — use the prediction tool for the next hours instead.';
+        return {
+          success: false,
+          message: userMessage,
+          userMessage,
+          hint: 'Call replayPrediction (city Sofia, optional hours) instead of replayPollution for forecasts.'
+        };
+      }
+
       const hours = Math.min(Math.max(input.hours || 24, 1), 168);
       const intervalMs = input.intervalMs || 1000;
       const parameter = input.parameter || 'PM10';
@@ -216,13 +228,18 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       ]);
 
       if (replayData.hoursReturned === 0) {
+        const userMessage = `I couldn't find historical pollution data starting ${startDate}. Try a past date, or ask for a forecast with the prediction tool.`;
         return {
           success: false,
-          message: `No pollution data found for the requested period starting ${startDate}. Data is available from 2017-02-20 to present.`,
+          message: userMessage,
+          userMessage,
         };
       }
 
       const endHour = replayData.hours[replayData.hours.length - 1].hour;
+      const cityLabel = cityName || 'Sofia';
+      const userMessage =
+        `Historical ${parameter} pollution for ${cityLabel} is now playing on the map (${replayData.hoursReturned} hours from ${startDate}).`;
 
       await emitEvent('pollutionReplay', {
         action: 'start',
@@ -239,10 +256,13 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         parameter,
         startDate,
         intervalMs,
+        appliedResult: { description: userMessage },
         timestamp: new Date().toISOString(),
       });
       return {
         success: true,
+        message: userMessage,
+        userMessage,
         hoursReturned: replayData.hoursReturned,
         gridPointCount: replayData.gridPointCount,
         startDate,
@@ -290,10 +310,25 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       ]);
 
       if (predictionData.hoursReturned === 0) {
+        const userMessage = 'No air-quality forecast is available right now. The prediction may not have been generated yet.';
         return {
           success: false,
-          message: 'No prediction data currently available. The forecast may not have been generated yet.',
+          message: userMessage,
+          userMessage,
         };
+      }
+
+      const cityLabel = cityName || 'Sofia';
+      const forecastAgeHours = predictionData.startDate
+        ? Math.round((Date.now() - Date.parse(predictionData.startDate)) / 3600000)
+        : null;
+      let userMessage =
+        `PM10 forecast for ${cityLabel} is now playing on the map`
+        + (predictionData.model ? ` (${predictionData.model})` : '')
+        + ` — ${predictionData.hoursReturned} hours from ${predictionData.startDate}.`;
+      if (forecastAgeHours != null && forecastAgeHours > 36) {
+        userMessage +=
+          ` Note: this forecast run starts about ${Math.round(forecastAgeHours / 24)} days ago, not from the current hour — the prediction pipeline may need a refresh.`;
       }
 
       await emitEvent('pollutionReplay', {
@@ -313,10 +348,13 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         parameter: 'PM10',
         startDate: predictionData.startDate,
         intervalMs,
+        appliedResult: { description: userMessage },
         timestamp: new Date().toISOString(),
       });
       return {
         success: true,
+        message: userMessage,
+        userMessage,
         model: predictionData.model,
         hoursReturned: predictionData.hoursReturned,
         gridPointCount: predictionData.gridPointCount,
