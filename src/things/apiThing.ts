@@ -1,8 +1,8 @@
 /**
  * API Thing — aggregates live external feeds: OpenWeatherMap (current
  * conditions), Nominatim (two-way geocoding), and the GATE CityLab Sofia
- * Sensors environmental station network via CityLab 3cm-server
- * (load / filter / remove / query).
+ * Sensors environmental station network via GATE CityLab Sofia Sensors API
+ * (load / filter / remove / query). Requires SOFIA_SENSORS_API_KEY.
  */
 
 import fetch from 'node-fetch';

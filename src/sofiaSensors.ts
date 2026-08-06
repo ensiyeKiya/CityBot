@@ -1,16 +1,16 @@
 /**
- * Client for GATE CityLab 3D City Model sensor backend (3cm-server).
+ * Client for the GATE CityLab Sofia Sensors API
+ * (https://citylab.gate-ai.eu/sofiasensors/api/docs).
  *
- * Public GeoJSON API used by the CityLab 3D viewer — no API key required.
- * Base: https://citylab.gate-ai.eu/3cm-server
+ * Requires SOFIA_SENSORS_API_KEY (sent as X-API-Key).
  */
 
 import fetch from 'node-fetch';
 
-export const CITYLAB_3CM_API_BASE =
-  process.env.CITYLAB_3CM_API_BASE || 'https://citylab.gate-ai.eu/3cm-server';
+export const SOFIA_SENSORS_API_BASE =
+  process.env.SOFIA_SENSORS_API_BASE || 'https://citylab.gate-ai.eu/sofiasensors/api';
 
-/** Canonical operator names accepted by 3cm-server. */
+/** Canonical operator names accepted by the API. */
 export const OPERATOR_NAMES = [
   'Executive environmental agency (ExEA)',
   'Sofia municipality',
@@ -19,7 +19,7 @@ export const OPERATOR_NAMES = [
 
 export type OperatorName = (typeof OPERATOR_NAMES)[number];
 
-/** Parameters available per operator (from CityLab sensorManager). */
+/** Parameters available per operator (CityLab / API). */
 export const OPERATOR_PARAMS: Record<OperatorName, readonly string[]> = {
   'Sofia municipality': ['PM10', 'T', 'p', 'RH', 'CO', 'NO2', 'SO2', 'O3', 'PM2.5'],
   'Executive environmental agency (ExEA)': [
@@ -30,7 +30,7 @@ export const OPERATOR_PARAMS: Record<OperatorName, readonly string[]> = {
   ]
 };
 
-/** Abbreviation → full parameter name. */
+/** Abbreviation → full parameter name (API ParameterNameEnum). */
 export const PARAM_FULL_BY_ABBREV: Record<string, string> = {
   T: 'Temperature',
   p: 'Pressure',
@@ -71,6 +71,24 @@ const OPERATOR_ALIASES: Record<string, OperatorName> = {
 
 const MEASUREMENT_KEYS = new Set(Object.keys(PARAM_FULL_BY_ABBREV));
 
+export interface StationInfo {
+  id: number;
+  name: string;
+  serialNumber?: string;
+  model?: string | null;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  operator: string;
+  stationType?: string;
+}
+
+export interface StationMeasurement {
+  date_measured: string;
+  station_name: string;
+  measurements: Record<string, number | null>;
+}
+
 export interface SensorGeoJsonFeature {
   type: 'Feature';
   geometry: {
@@ -80,19 +98,31 @@ export interface SensorGeoJsonFeature {
   properties: Record<string, unknown>;
 }
 
-interface OperatorStationsGeoJson {
-  type: 'FeatureCollection';
-  features: Array<{
-    type: 'Feature';
-    geometry: { type: 'Point'; coordinates: [number, number] };
-    properties: Record<string, unknown>;
-  }>;
+function getApiKey(): string {
+  const key = process.env.SOFIA_SENSORS_API_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      'SOFIA_SENSORS_API_KEY is not set. Add your GATE CityLab Sofia Sensors X-API-Key to the environment.'
+    );
+  }
+  return key;
 }
 
-async function citylabFetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
+async function sofiaSensorsFetch<T>(path: string, query?: Record<string, string>): Promise<T> {
+  const base = SOFIA_SENSORS_API_BASE.endsWith('/')
+    ? SOFIA_SENSORS_API_BASE
+    : `${SOFIA_SENSORS_API_BASE}/`;
+  const url = new URL(path.replace(/^\//, ''), base);
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
     headers: {
       Accept: 'application/json',
+      'X-API-Key': getApiKey(),
       'User-Agent': 'CityBot/1.0'
     }
   });
@@ -100,7 +130,7 @@ async function citylabFetchJson<T>(url: string): Promise<T> {
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(
-      `CityLab 3cm-server ${response.status} for ${url}: ${body.slice(0, 300) || response.statusText}`
+      `Sofia Sensors API ${response.status} for ${url.pathname}: ${body.slice(0, 300) || response.statusText}`
     );
   }
 
@@ -152,7 +182,6 @@ export function operatorForStationId(station: string): OperatorName {
   if (id.startsWith('AT')) return 'Sofia municipality';
   if (id.startsWith('AE')) return 'Executive environmental agency (ExEA)';
   if (/^A\d+$/i.test(id)) return 'GATE Institute';
-  // Fallback: search all operators
   return 'GATE Institute';
 }
 
@@ -165,94 +194,117 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && !Number.isNaN(value) ? value : null;
 }
 
-/** Pick a numeric measurement from feature properties (live scalars or {max,min,avg}). */
+/** Pick a numeric measurement from properties or a measurements map. */
 export function pickMeasurementValue(
   properties: Record<string, unknown> | undefined,
   abbrev: string | null,
   agr: 'max' | 'min' | 'avg' = 'avg'
 ): number | null {
   if (!properties || !abbrev) return null;
-  const raw = properties[abbrev];
-  if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
-  if (raw && typeof raw === 'object') {
-    const obj = raw as Record<string, unknown>;
-    return asNumber(obj[agr]) ?? asNumber(obj.avg) ?? asNumber(obj.max) ?? asNumber(obj.min);
+  const full = PARAM_FULL_BY_ABBREV[abbrev];
+  const candidates = [abbrev, full, abbrev.toLowerCase(), full?.toLowerCase()].filter(Boolean) as string[];
+
+  for (const key of candidates) {
+    if (!(key in properties)) continue;
+    const raw = properties[key];
+    if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      const n = asNumber(obj[agr]) ?? asNumber(obj.avg) ?? asNumber(obj.max) ?? asNumber(obj.min);
+      if (n != null) return n;
+    }
+  }
+
+  const lowerMap = new Map(
+    Object.entries(properties).map(([k, v]) => [k.toLowerCase(), v])
+  );
+  for (const key of candidates) {
+    const raw = lowerMap.get(key.toLowerCase());
+    if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
   }
   return null;
 }
 
-function extractMeasurements(properties: Record<string, unknown>): Record<string, number | null> {
+function flattenMeasurements(
+  measurements: Record<string, number | null> | undefined
+): Record<string, number | null> {
   const out: Record<string, number | null> = {};
-  for (const key of MEASUREMENT_KEYS) {
-    if (!(key in properties)) continue;
-    out[key] = pickMeasurementValue(properties, key);
+  if (!measurements) return out;
+  for (const [key, value] of Object.entries(measurements)) {
+    const abbrev = MEASUREMENT_KEYS.has(key)
+      ? key
+      : PARAM_ABBREV_BY_FULL[key.toLowerCase()] || key;
+    out[abbrev] = value;
   }
   return out;
 }
 
-/** Live stations for one operator as GeoJSON FeatureCollection. */
-export async function fetchOperatorStations(operator: OperatorName): Promise<OperatorStationsGeoJson> {
-  const url = `${CITYLAB_3CM_API_BASE}/api/operator-stations?operator=${encodeURIComponent(operator)}`;
-  return citylabFetchJson<OperatorStationsGeoJson>(url);
+export async function fetchAllStations(): Promise<StationInfo[]> {
+  return sofiaSensorsFetch<StationInfo[]>('stations/');
 }
 
-/**
- * Historical aggregated (or hourly) stations for one operator/date.
- * mode: byAgr → properties[param] = {max,min,avg}; byHour → chart series payload.
- */
-export async function fetchOperatorStationsByDate(options: {
-  operator: OperatorName;
-  date: string; // YYYY-MM-DD
-  params?: string[];
-  mode?: 'byAgr' | 'byHour';
-  param?: string;
-}): Promise<any> {
-  const paramsList = options.params?.length
-    ? options.params
-    : [...OPERATOR_PARAMS[options.operator]];
-  const url = new URL(`${CITYLAB_3CM_API_BASE}/api/operator-stations-by-date`);
-  url.searchParams.set('operator', options.operator);
-  url.searchParams.set('date', options.date);
-  url.searchParams.set('params', paramsList.join(','));
-  url.searchParams.set('mode', options.mode || 'byAgr');
-  if (options.param) url.searchParams.set('param', options.param);
-  return citylabFetchJson(url.toString());
+export async function fetchStationsByOperator(operator: OperatorName): Promise<StationInfo[]> {
+  return sofiaSensorsFetch<StationInfo[]>('operator/stations', { operator_name: operator });
 }
 
-function normalizeFeature(
-  feature: OperatorStationsGeoJson['features'][number],
-  operator: OperatorName,
+export async function fetchStationsByParameter(fullParameterName: string): Promise<StationInfo[]> {
+  return sofiaSensorsFetch<StationInfo[]>('stations/measure/parameter/', {
+    parameter_name: fullParameterName
+  });
+}
+
+export async function fetchAllLastMeasurements(): Promise<StationMeasurement[]> {
+  return sofiaSensorsFetch<StationMeasurement[]>('stations/lastmeasurements');
+}
+
+export async function fetchOperatorLastMeasurements(
+  operator: OperatorName
+): Promise<StationMeasurement[]> {
+  return sofiaSensorsFetch<StationMeasurement[]>('operator/stations/lastmeasurements', {
+    operator_name: operator
+  });
+}
+
+export function buildSensorFeatures(
+  stations: StationInfo[],
+  measurementsByStation: Map<string, StationMeasurement>,
   parameterAbbrev: string | null
-): SensorGeoJsonFeature | null {
-  const coords = feature.geometry?.coordinates;
-  if (!coords || coords.length < 2) return null;
-  const props = { ...(feature.properties || {}) };
-  const object = String(props.object || props.station_name || 'Sensor');
-  const currentValue = pickMeasurementValue(props, parameterAbbrev);
-  const measurements = extractMeasurements(props);
+): SensorGeoJsonFeature[] {
+  return stations
+    .filter((s) => typeof s.longitude === 'number' && typeof s.latitude === 'number')
+    .map((station) => {
+      const meas = measurementsByStation.get(station.name.toUpperCase())
+        || measurementsByStation.get(station.name);
+      const flat = flattenMeasurements(meas?.measurements);
+      const currentValue = pickMeasurementValue(
+        { ...flat, ...(meas?.measurements || {}) } as Record<string, unknown>,
+        parameterAbbrev
+      );
 
-  return {
-    type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [Number(coords[0]), Number(coords[1])]
-    },
-    properties: {
-      ...measurements,
-      object,
-      station_name: props.station_name || object,
-      operator,
-      date_measured: props.date_measured ?? null,
-      currentValue,
-      coordinates: props.coordinates ?? coords
-    }
-  };
+      return {
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [station.longitude, station.latitude] as [number, number]
+        },
+        properties: {
+          object: station.name,
+          station_name: station.name,
+          operator: station.operator,
+          address: station.address || null,
+          stationType: station.stationType || null,
+          date_measured: meas?.date_measured || null,
+          currentValue,
+          ...flat
+        }
+      };
+    });
 }
 
 /**
- * Load live sensor pins for one or all operators.
- * When `parameter` is set, only operators that measure it are fetched,
- * and each feature gets `currentValue` for pin coloring.
+ * Load live sensor pins for one or all operators from the Sofia Sensors API.
+ * When `parameter` is set, stations without that reading are omitted and
+ * each feature gets `currentValue` for pin coloring.
  */
 export async function loadSensorNetwork(options: {
   operator?: string | null;
@@ -268,33 +320,45 @@ export async function loadSensorNetwork(options: {
   const parameter = resolveParameterAbbrev(options.parameter);
   const parameterFull = parameter ? parameterFullName(parameter) : null;
 
-  const operators: OperatorName[] = operator
-    ? [operator]
-    : operatorsForParameter(parameter);
-
-  if (operators.length === 0) {
-    return {
-      operator,
-      parameter,
-      parameterFull,
-      sensors: [],
-      sensorCount: 0
-    };
+  let stations: StationInfo[];
+  if (operator) {
+    stations = await fetchStationsByOperator(operator);
+  } else if (parameterFull) {
+    stations = await fetchStationsByParameter(parameterFull);
+  } else {
+    stations = await fetchAllStations();
   }
 
-  const collections = await Promise.all(
-    operators.map(async (op) => ({ op, geo: await fetchOperatorStations(op) }))
-  );
+  if (operator && parameterFull) {
+    const byParam = await fetchStationsByParameter(parameterFull);
+    const allowed = new Set(byParam.map((s) => s.name.toUpperCase()));
+    stations = stations.filter((s) => allowed.has(s.name.toUpperCase()));
+  } else if (!operator && parameter) {
+    // Restrict to operators that measure this parameter
+    const allowedOps = new Set(operatorsForParameter(parameter));
+    stations = stations.filter((s) => {
+      try {
+        const op = resolveOperator(s.operator);
+        return op != null && allowedOps.has(op);
+      } catch {
+        return true;
+      }
+    });
+  }
 
-  const sensors: SensorGeoJsonFeature[] = [];
-  for (const { op, geo } of collections) {
-    for (const feature of geo.features || []) {
-      const normalized = normalizeFeature(feature, op, parameter);
-      if (!normalized) continue;
-      // If a parameter was requested, skip stations with no reading for it
-      if (parameter && normalized.properties.currentValue == null) continue;
-      sensors.push(normalized);
-    }
+  const measurements = operator
+    ? await fetchOperatorLastMeasurements(operator)
+    : await fetchAllLastMeasurements();
+
+  const measurementsByStation = new Map<string, StationMeasurement>();
+  for (const m of measurements) {
+    measurementsByStation.set(m.station_name.toUpperCase(), m);
+    measurementsByStation.set(m.station_name, m);
+  }
+
+  let sensors = buildSensorFeatures(stations, measurementsByStation, parameter);
+  if (parameter) {
+    sensors = sensors.filter((f) => f.properties.currentValue != null);
   }
 
   return {
@@ -423,7 +487,6 @@ export async function evaluateSensorValueFilter(options: {
   if (options.filterType === 'quality') {
     matching = all.filter((row) => matchesQualityLevel(row.value, parameter, raw));
   } else if (options.filterType === 'value') {
-    // Allow rank keywords via filterType=value as a convenience
     if (['worst', 'highest', 'max', 'maximum'].includes(lower)) {
       matching = [...all].sort((a, b) => b.value - a.value).slice(0, options.rankLimit ?? 1);
     } else if (['best', 'lowest', 'min', 'minimum'].includes(lower)) {
@@ -432,7 +495,6 @@ export async function evaluateSensorValueFilter(options: {
       matching = all.filter((row) => matchesValueExpression(row.value, raw));
     }
   } else {
-    // rank
     const topMatch = lower.match(/^top\s*:?\s*(\d+)$/);
     const bottomMatch = lower.match(/^(bottom|lowest)\s*:?\s*(\d+)$/);
     const limit = options.rankLimit
@@ -467,7 +529,7 @@ export async function evaluateSensorValueFilter(options: {
   };
 }
 
-/** Latest measurements for one station (searches the matching operator, then all). */
+/** Latest measurements for one station via Sofia Sensors API. */
 export async function fetchStationLastMeasurements(
   stationName: string
 ): Promise<{
@@ -479,31 +541,36 @@ export async function fetchStationLastMeasurements(
   latitude: number | null;
 }> {
   const station = stationName.trim().toUpperCase();
-  const preferred = operatorForStationId(station);
-  const searchOrder: OperatorName[] = [
-    preferred,
-    ...OPERATOR_NAMES.filter((op) => op !== preferred)
-  ];
+  const data = await sofiaSensorsFetch<{
+    date_measured: string;
+    measurements: Record<string, number | null>;
+  }>('stations/station/lastmeasurements', { station_name: station });
 
-  for (const operator of searchOrder) {
-    const geo = await fetchOperatorStations(operator);
-    const match = (geo.features || []).find((f) => {
-      const name = String(f.properties?.object || f.properties?.station_name || '').toUpperCase();
-      return name === station;
-    });
-    if (!match) continue;
-
-    const props = match.properties || {};
-    const coords = match.geometry?.coordinates;
-    return {
-      date_measured: (props.date_measured as string) || null,
-      station_name: station,
-      operator,
-      measurements: extractMeasurements(props),
-      longitude: coords ? Number(coords[0]) : null,
-      latitude: coords ? Number(coords[1]) : null
-    };
+  let longitude: number | null = null;
+  let latitude: number | null = null;
+  let operator = operatorForStationId(station);
+  try {
+    const stations = await fetchStationsByOperator(operator);
+    const info = stations.find((s) => s.name.toUpperCase() === station);
+    if (info) {
+      longitude = info.longitude;
+      latitude = info.latitude;
+      try {
+        operator = resolveOperator(info.operator) || operator;
+      } catch {
+        // keep guessed operator
+      }
+    }
+  } catch {
+    // coordinates optional
   }
 
-  throw new Error(`Station ${station} was not found in the CityLab sensor network.`);
+  return {
+    date_measured: data.date_measured || null,
+    station_name: station,
+    operator,
+    measurements: flattenMeasurements(data.measurements),
+    longitude,
+    latitude
+  };
 }
