@@ -198,7 +198,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args). Compose with other tools for complex requests.\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings. quality=good/moderate/poor/very poor/hazardous; value=">20"|worst|best; rank=worst|best|top:5.\n- Proximity to buildings: filterType nearBuildings + filterValue = building class (any class: healthcare, schools/education, habitation/residential, commercial, industrial, sports, or the exact citygml class string) + optional radiusMeters (default 800) + optional parameter to color by a pollutant. Then optionally call filterBuildings with the same class so buildings are highlighted too.\n- operator/name: hide pins by operator or station id (AT12). Do not use name for building types.',
+        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args).\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings.\n- nearBuildings: ONLY when the user asks which/show sensors near a building type (hospitals, schools, …). Reloads sensor pins to that proximity set. Do NOT call nearBuildings when the user only wants to add/highlight buildings.\n- operator/name: hide pins by operator or station id. Do not use name for building types.',
         input: {
           type: 'object',
           properties: {
