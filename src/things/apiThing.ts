@@ -329,7 +329,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             },
             limit: {
               type: 'number',
-              description: 'For rank/worst/best: how many stations to keep.'
+              description: 'Optional. For rank: override how many stations to keep. Default is 1 for worst/best/highest/lowest; use filterValue "top:5" (or set limit) when the user asks for several.'
             },
             // Injected by the LLM gateway — listed so empty model args still validate
             userId: { oneOf: [{ type: 'string' }, { type: 'number' }] },

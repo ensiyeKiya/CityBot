@@ -488,11 +488,19 @@ export async function evaluateSensorValueFilter(options: {
       matching = all.filter((row) => matchesValueExpression(row.value, raw));
     }
   } else {
+    // rank: "worst"/"best" → 1 station; "top:N"/"bottom:N" → N; optional rankLimit overrides.
     const topMatch = lower.match(/^top\s*:?\s*(\d+)$/);
     const bottomMatch = lower.match(/^(bottom|lowest)\s*:?\s*(\d+)$/);
-    const limit = options.rankLimit
-      ?? (topMatch ? parseInt(topMatch[1], 10) : bottomMatch ? parseInt(bottomMatch[2], 10) : 5);
-    const n = Math.max(1, Math.min(limit || 5, all.length || 1));
+    const singular = ['worst', 'highest', 'max', 'maximum', 'best', 'lowest', 'min', 'minimum'].includes(lower);
+    const parsedN = topMatch
+      ? parseInt(topMatch[1], 10)
+      : bottomMatch
+        ? parseInt(bottomMatch[2], 10)
+        : singular
+          ? 1
+          : 5;
+    const limit = options.rankLimit ?? parsedN;
+    const n = Math.max(1, Math.min(limit || 1, all.length || 1));
     if (['worst', 'highest', 'max', 'maximum'].includes(lower) || topMatch) {
       matching = [...all].sort((a, b) => b.value - a.value).slice(0, n);
     } else if (['best', 'lowest', 'min', 'minimum'].includes(lower) || bottomMatch) {
