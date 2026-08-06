@@ -14,7 +14,6 @@ import {
   loadSensorNetwork,
   resolveOperator,
   resolveParameterAbbrev,
-  parameterFullName,
   pickMeasurementValue,
   fetchStationLastMeasurements,
   evaluateSensorValueFilter,
@@ -30,6 +29,111 @@ function extractInput(params: any): Promise<any> {
     return params.value();
   }
   return Promise.resolve(params);
+}
+
+/** Short everyday labels for citygml building classes (spoken replies). */
+function friendlyBuildingClassLabel(cls: string): string {
+  const map: Record<string, string> = {
+    healthcare: 'hospitals',
+    'schools, education, research': 'schools',
+    sport: 'sports centers',
+    'business, trade': 'business buildings',
+    habitation: 'residential buildings',
+    'church institution': 'churches',
+    administration: 'administrative buildings',
+    industry: 'industrial buildings',
+    storage: 'storage buildings',
+    traffic: 'traffic buildings',
+    culture: 'cultural buildings'
+  };
+  return map[cls] || cls;
+}
+
+function sensorUnit(parameter: string | null | undefined): string {
+  if (!parameter) return '';
+  return QUALITY_CONFIG[parameter]?.unit || '';
+}
+
+function formatReading(
+  parameter: string,
+  row: { station: string; value: number } | null | undefined
+): string {
+  if (!row) return '';
+  const unit = sensorUnit(parameter);
+  return `${formatSensorNumber(row.value)}${unit ? ` ${unit}` : ''} at ${row.station}`;
+}
+
+/** Natural user-facing text for value/quality/rank sensor filters. */
+function sensorValueUserMessage(options: {
+  filterType: string;
+  filterValue: string;
+  parameter: string;
+  allCount: number;
+  matching: Array<{ station: string; value: number }>;
+  highest: { station: string; value: number } | null;
+}): string {
+  const { filterType, filterValue, parameter, allCount, matching, highest } = options;
+  const lower = filterValue.trim().toLowerCase();
+  const isRankWord = ['worst', 'best', 'highest', 'lowest', 'max', 'min', 'maximum', 'minimum'].includes(lower);
+  const isTop = /^top\s*:?\s*\d+$/i.test(filterValue);
+  const isBottom = /^(bottom|lowest)\s*:?\s*\d+$/i.test(filterValue);
+  const wantHigh =
+    isTop
+    || ['worst', 'highest', 'max', 'maximum'].includes(lower)
+    || (filterType === 'rank' && !isBottom && !['best', 'lowest', 'min', 'minimum'].includes(lower));
+
+  if (allCount === 0) {
+    return `No live ${parameter} readings are available right now.`;
+  }
+
+  if (matching.length === 0) {
+    if (filterType === 'quality') {
+      return highest
+        ? `No stations currently report ${filterValue} ${parameter}. The highest right now is ${formatReading(parameter, highest)}.`
+        : `No stations currently report ${filterValue} ${parameter}.`;
+    }
+    return highest
+      ? `Nothing on the map matches that ${parameter} filter. The highest reading right now is ${formatReading(parameter, highest)}.`
+      : `Nothing on the map matches that ${parameter} filter.`;
+  }
+
+  if (filterType === 'rank' || isRankWord || isTop || isBottom) {
+    if (matching.length === 1) {
+      return wantHigh
+        ? `The highest ${parameter} right now is ${formatReading(parameter, matching[0])}.`
+        : `The lowest ${parameter} right now is ${formatReading(parameter, matching[0])}.`;
+    }
+    const unit = sensorUnit(parameter);
+    const list = matching
+      .slice(0, 5)
+      .map((r) => `${r.station} (${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''})`)
+      .join(', ');
+    return `Here are the ${wantHigh ? 'highest' : 'lowest'} ${parameter} readings: ${list}.`;
+  }
+
+  if (filterType === 'quality') {
+    return matching.length === 1
+      ? `One station currently reports ${filterValue} ${parameter}: ${formatReading(parameter, matching[0])}.`
+      : `Stations with ${filterValue} ${parameter} are highlighted on the map.`
+        + (highest ? ` Highest among them: ${formatReading(parameter, highest)}.` : '');
+  }
+
+  // Numeric / broad value filters — describe the map outcome, not the expression.
+  if (matching.length >= allCount * 0.8) {
+    return highest
+      ? `${parameter} readings are now shown on the map. Highest right now: ${formatReading(parameter, highest)}.`
+      : `${parameter} readings are now shown on the map.`;
+  }
+
+  const unit = sensorUnit(parameter);
+  const sample = matching
+    .slice(0, 3)
+    .map((r) => `${r.station} (${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''})`)
+    .join(', ');
+  return `Stations matching that ${parameter} filter are highlighted`
+    + (sample ? ` — for example ${sample}` : '')
+    + '.'
+    + (highest ? ` Highest overall: ${formatReading(parameter, highest)}.` : '');
 }
 
 // OpenWeatherMap API types
@@ -465,13 +569,20 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         parameter: input?.parameter
       });
 
-      const operatorLabel = loaded.operator || 'all operators';
-      const paramLabel = loaded.parameter
-        ? `${loaded.parameter} (${loaded.parameterFull})`
-        : 'all parameters';
-      const userMessage = loaded.sensorCount === 0
-        ? `No Sofia Sensors stations matched for ${operatorLabel}${loaded.parameter ? ` measuring ${paramLabel}` : ''}.`
-        : `Showing ${loaded.sensorCount} Sofia Sensors station${loaded.sensorCount === 1 ? '' : 's'} on the map (${operatorLabel}${loaded.parameter ? `, colored by ${loaded.parameter}` : ''}).`;
+      let userMessage: string;
+      if (loaded.sensorCount === 0) {
+        userMessage = loaded.parameter
+          ? `I couldn't find any stations measuring ${loaded.parameter} right now.`
+          : `I couldn't find any environmental sensor stations to show.`;
+      } else if (loaded.parameter) {
+        userMessage = loaded.operator
+          ? `Sensor stations from ${loaded.operator}, colored by ${loaded.parameter}, are now on the map.`
+          : `Sensor stations colored by ${loaded.parameter} are now on the map.`;
+      } else {
+        userMessage = loaded.operator
+          ? `Sensor stations from ${loaded.operator} are now on the map.`
+          : `Environmental sensor stations are now on the map.`;
+      }
 
       const uiEffect = {
         needsAck: true,
@@ -555,30 +666,16 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           rankLimit: typeof input.limit === 'number' ? input.limit : undefined
         });
 
-        const unit = QUALITY_CONFIG[evaluated.parameter]?.unit || '';
-        const matchList = evaluated.matching
-          .slice(0, 8)
-          .map((r) => `${r.station}=${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''}`)
-          .join(', ');
-
-        let userMessage: string;
-        if (evaluated.all.length === 0) {
-          userMessage = `No live ${evaluated.parameter} readings are available from the sensor network.`;
-        } else if (evaluated.matching.length === 0) {
-          const hi = evaluated.highest;
-          userMessage = `None of the ${evaluated.all.length} stations with ${evaluated.parameter} match ${filterType} "${filterValue}".`
-            + (hi
-              ? ` Highest current ${evaluated.parameter} is ${formatSensorNumber(hi.value)}${unit ? ` ${unit}` : ''} at ${hi.station}.`
-              : '');
-        } else if (filterType === 'rank' || ['worst', 'best', 'highest', 'lowest', 'max', 'min', 'maximum', 'minimum'].includes(filterValue.toLowerCase())) {
-          userMessage = `Checked all ${evaluated.all.length} stations for ${evaluated.parameter}. `
-            + `Showing ${evaluated.matching.length}: ${matchList}.`;
-        } else {
-          userMessage = `${evaluated.matching.length} of ${evaluated.all.length} stations match ${filterType} "${filterValue}" for ${evaluated.parameter}`
-            + (matchList ? `: ${matchList}` : '.')
-            + (evaluated.matching.length > 8 ? '…' : '');
-          if (!userMessage.endsWith('.') && !userMessage.endsWith('…')) userMessage += '.';
-        }
+        const userMessage = sensorValueUserMessage({
+          filterType,
+          filterValue,
+          parameter: evaluated.parameter,
+          allCount: evaluated.all.length,
+          matching: evaluated.matching,
+          highest: evaluated.highest
+            ? { station: evaluated.highest.station, value: evaluated.highest.value }
+            : null
+        });
 
         await emitEvent('sensorsChanged', {
           action: 'load',
@@ -644,26 +741,27 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         }
 
         const nearby = filterSensorsNearPoints(loaded.sensors, buildingPoints, radiusMeters);
-        const unit = parameter && QUALITY_CONFIG[parameter] ? QUALITY_CONFIG[parameter].unit : '';
-        const sample = nearby
-          .slice(0, 8)
+        const place = friendlyBuildingClassLabel(buildingClass);
+        const unit = sensorUnit(parameter);
+        const nearest = nearby
+          .slice(0, 3)
           .map((f) => {
             const name = String(f.properties.object || 'Sensor');
             const dist = f.properties.nearestDistanceM;
             const val = parameter != null ? f.properties.currentValue : null;
             const valPart = typeof val === 'number'
-              ? `, ${parameter}=${formatSensorNumber(val)}${unit ? ` ${unit}` : ''}`
+              ? `, ${parameter} ${formatSensorNumber(val)}${unit ? ` ${unit}` : ''}`
               : '';
             return `${name} (${dist} m${valPart})`;
           })
-          .join('; ');
+          .join(', ');
 
         let userMessage: string;
         if (!nearby.length) {
-          userMessage = `None of the ${loaded.sensorCount} sensors are within ${radiusMeters} m of ${buildingClass} buildings (${buildingPoints.length} buildings checked).`;
+          userMessage = `I couldn't find any sensors within about ${radiusMeters} m of ${place}.`;
         } else {
-          userMessage = `${nearby.length} of ${loaded.sensorCount} sensors are within ${radiusMeters} m of ${buildingClass} (${buildingPoints.length} buildings).`
-            + (sample ? ` Nearest: ${sample}${nearby.length > 8 ? '…' : ''}.` : '');
+          userMessage = `Sensors near ${place} are now on the map.`
+            + (nearest ? ` Closest: ${nearest}.` : '');
         }
 
         await emitEvent('sensorsChanged', {
@@ -715,7 +813,14 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         filterValue = resolveOperator(filterValue) || filterValue;
       }
 
-      const userMessage = `Sensor pins are now filtered by ${filterType}: ${filterValue}${parameter ? ` (${parameter})` : ''}.`;
+      let userMessage: string;
+      if (filterType === 'operator') {
+        userMessage = `Showing stations from ${filterValue} on the map.`;
+      } else if (filterType === 'name') {
+        userMessage = `Showing stations matching “${filterValue}” on the map.`;
+      } else {
+        userMessage = `Sensor pins are updated on the map.`;
+      }
 
       await emitEvent('sensorsChanged', {
         action: 'filter',
@@ -810,16 +915,17 @@ export async function exposeApiThing(WoT: any): Promise<any> {
 
       let userMessage: string;
       if (parameter) {
-        const full = parameterFullName(parameter);
+        const unit = sensorUnit(parameter);
         userMessage = value === null
-          ? `No latest ${parameter} (${full}) reading is available for station ${station}.`
-          : `The latest ${parameter} (${full}) at station ${station} is ${value}${data.date_measured ? ` (measured ${data.date_measured})` : ''}.`;
+          ? `No latest ${parameter} reading is available for station ${station}.`
+          : `Latest ${parameter} at ${station} is ${value}${unit ? ` ${unit}` : ''}`
+            + (data.date_measured ? ` (measured ${data.date_measured}).` : '.');
       } else {
         const entries = Object.entries(data.measurements || {})
           .filter(([, v]) => v !== null && v !== undefined)
           .map(([k, v]) => `${k}: ${v}`);
         userMessage = entries.length
-          ? `Latest measurements at station ${station}${data.date_measured ? ` (${data.date_measured})` : ''}: ${entries.join(', ')}.`
+          ? `Latest readings at ${station}: ${entries.join(', ')}.`
           : `No latest measurements are available for station ${station}.`;
       }
 

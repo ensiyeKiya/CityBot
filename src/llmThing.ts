@@ -1150,24 +1150,17 @@ async function main() {
       console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
       const applied = uiStatus.status === 'applied';
       // Keep domain userMessage on success; on UI failure, append a presentation note.
+      // Do not rewrite sensor replies with pin counts — domain text is the spoken answer.
       let userMessage = typeof toolResult.userMessage === 'string' ? toolResult.userMessage : undefined;
       if (userMessage && !applied) {
         userMessage = `${userMessage} (The browser did not confirm the map update: ${uiStatus.status}.)`;
-      }
-      // Sensor filters: browser reports how many pins remained visible — prefer that count.
-      const visibleCount = uiStatus.details?.visibleCount;
-      const totalCount = uiStatus.details?.totalCount;
-      if (
+      } else if (
         applied &&
         toolName === 'filterSensors' &&
-        typeof visibleCount === 'number' &&
-        typeof totalCount === 'number'
+        typeof uiStatus.details?.visibleCount === 'number' &&
+        uiStatus.details.visibleCount === 0
       ) {
-        if (visibleCount === 0) {
-          userMessage = `No sensor pins match that filter (${totalCount} loaded; none visible).`;
-        } else if (visibleCount < totalCount) {
-          userMessage = `${visibleCount} of ${totalCount} sensor pins match the filter and remain visible on the map.`;
-        }
+        userMessage = 'No matching sensor pins are visible on the map for that filter.';
       }
       return {
         ...toolResult,
