@@ -243,6 +243,14 @@ export async function fetchAllStations(): Promise<StationInfo[]> {
   return sofiaSensorsFetch<StationInfo[]>('stations/');
 }
 
+/** Resolve a station id/name (e.g. A1, AE5, AT12) to live coordinates. */
+export async function findStationByName(stationName: string): Promise<StationInfo | null> {
+  const key = String(stationName || '').trim().toUpperCase();
+  if (!key) return null;
+  const stations = await fetchAllStations();
+  return stations.find((s) => String(s.name || '').toUpperCase() === key) || null;
+}
+
 export async function fetchStationsByOperator(operator: OperatorName): Promise<StationInfo[]> {
   return sofiaSensorsFetch<StationInfo[]>('operator/stations', { operator_name: operator });
 }

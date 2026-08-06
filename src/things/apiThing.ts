@@ -7,7 +7,7 @@
 
 import fetch from 'node-fetch';
 import { tracer, THING_IDS, SECURITY_SCHEME, USER_AGENT, createEmitEvent, httpForm, mqttEventForm } from './shared';
-import { fetchBuildingCoordinatesByClass } from '../database';
+import { fetchBuildingCoordinatesByClass, fetchBuildingsNearPoint } from '../database';
 import {
   OPERATOR_NAMES,
   QUALITY_CONFIG,
@@ -19,7 +19,8 @@ import {
   evaluateSensorValueFilter,
   filterSensorsNearPoints,
   resolveBuildingClass,
-  formatSensorNumber
+  formatSensorNumber,
+  findStationByName
 } from '../sofiaSensors';
 
 const TITLE = 'api';
@@ -61,6 +62,23 @@ function formatReading(
   if (!row) return '';
   const unit = sensorUnit(parameter);
   return `${formatSensorNumber(row.value)}${unit ? ` ${unit}` : ''} at ${row.station}`;
+}
+
+function toCesiumColorExpr(value: string): string {
+  if (!value) return "color('white')";
+  const trimmed = String(value).trim();
+  return /^rgb(a)?\(/i.test(trimmed) ? trimmed : `color('${trimmed}')`;
+}
+
+/** Cesium 3D Tiles condition matching a list of building gml ids. */
+function gmlIdMatchExpression(gmlIds: string[]): string {
+  const parts = gmlIds
+    .filter(Boolean)
+    .map((id) => {
+      const esc = String(id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `(\${feature['gml_id']} === '${esc}' || \${feature['GMLID']} === '${esc}')`;
+    });
+  return parts.length ? parts.join(' || ') : 'false';
 }
 
 /** Natural user-facing text for value/quality/rank sensor filters. */
@@ -242,6 +260,23 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           required: ["action"]
         },
         forms: mqttEventForm(TITLE, 'sensorsChanged')
+      },
+      visualizationStyleChanged: {
+        title: "Visualization Style Changed",
+        description: "Emitted when findBuildingsNearSensor highlights nearby buildings (same frontend contract as citymodel).",
+        data: {
+          type: "object",
+          properties: {
+            style: { type: "string" },
+            styleName: { type: "string" },
+            styleDefinition: { type: "object" },
+            userId: { type: "string" },
+            requestId: { oneOf: [{ type: "string" }, { type: "null" }] },
+            toolCallId: { oneOf: [{ type: "string" }, { type: "null" }] },
+            timestamp: { type: "string", format: "date-time" }
+          }
+        },
+        forms: mqttEventForm(TITLE, 'visualizationStyleChanged')
       }
     },
     actions: {
@@ -302,7 +337,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args).\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings.\n- nearBuildings: ONLY when the user asks which/show sensors near a building type (hospitals, schools, …). Reloads sensor pins to that proximity set. Do NOT call nearBuildings when the user only wants to add/highlight buildings.\n- operator/name: hide pins by operator or station id. Do not use name for building types.',
+        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args).\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings.\n- nearBuildings: ONLY when the user asks which/show SENSORS near a building type (hospitals, schools, …). Reloads sensor pins. Do NOT use nearBuildings for "which schools are close to sensor A1 / close to it" — that is findBuildingsNearSensor.\n- operator/name: hide pins by operator or station id. Do not use name for building types.',
         input: {
           type: 'object',
           properties: {
@@ -372,6 +407,41 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         },
         output: { type: 'object' },
         forms: httpForm(TITLE, 'actions', 'getSensorMeasurement', ['invokeaction'])
+      },
+      findBuildingsNearSensor: {
+        description: 'Find buildings of a given class near ONE sensor station and highlight them on the map. Use for "which schools are close to it/A1?", "hospitals near the worst PM10 sensor", "what is around station AE5?". Pass the station id from conversation context (e.g. A1). Do NOT use filterSensors nearBuildings for this — that finds sensors near buildings (opposite direction).',
+        input: {
+          type: 'object',
+          properties: {
+            station: {
+              type: 'string',
+              description: 'Sensor station id from context (e.g. A1, AE5, AT12)'
+            },
+            buildingClass: {
+              type: 'string',
+              description: 'Building type to search (schools, hospitals/healthcare, habitation, sport, industry, business, …)'
+            },
+            radiusMeters: {
+              type: 'number',
+              description: 'Search radius in meters (default 800)'
+            },
+            color: {
+              type: 'string',
+              description: 'Highlight color for matching buildings (default red)'
+            },
+            limit: {
+              type: 'number',
+              description: 'Max buildings to return/highlight (default 10)'
+            },
+            userId: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            _userId: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            _requestId: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            _toolCallId: { oneOf: [{ type: 'string' }, { type: 'null' }] }
+          },
+          required: ['station', 'buildingClass']
+        },
+        output: { type: 'object' },
+        forms: httpForm(TITLE, 'actions', 'findBuildingsNearSensor', ['invokeaction'])
       }
     }
   });
@@ -949,6 +1019,131 @@ export async function exposeApiThing(WoT: any): Promise<any> {
       };
     } catch (error) {
       console.error('Error in getSensorMeasurement handler:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: true, message: errorMessage };
+    } finally {
+      span.end();
+    }
+  });
+
+  thing.setActionHandler('findBuildingsNearSensor', async (params: any) => {
+    const span = tracer.startSpan('findBuildingsNearSensor');
+    try {
+      const input = await extractInput(params);
+      const userId = input?._userId ?? input?.userId ?? null;
+      if (!userId) {
+        return { error: true, message: 'userId is required' };
+      }
+      if (!input?.station) {
+        return { error: true, message: 'station is required (e.g. A1)' };
+      }
+      if (!input?.buildingClass) {
+        return { error: true, message: 'buildingClass is required (e.g. schools, healthcare)' };
+      }
+
+      const stationName = String(input.station).trim().toUpperCase();
+      const buildingClass = resolveBuildingClass(String(input.buildingClass));
+      const place = friendlyBuildingClassLabel(buildingClass);
+      const radiusMeters = Number(input.radiusMeters) > 0 ? Number(input.radiusMeters) : 800;
+      const limit = Number(input.limit) > 0 ? Number(input.limit) : 10;
+      const color = String(input.color || 'red').trim() || 'red';
+
+      const station = await findStationByName(stationName);
+      if (!station || typeof station.latitude !== 'number' || typeof station.longitude !== 'number') {
+        return {
+          error: true,
+          message: `I couldn't find sensor station ${stationName} in the Sofia Sensors network.`
+        };
+      }
+
+      const nearby = await fetchBuildingsNearPoint({
+        latitude: station.latitude,
+        longitude: station.longitude,
+        radiusMeters,
+        classDescription: buildingClass,
+        limit
+      });
+
+      let userMessage: string;
+      if (!nearby.length) {
+        userMessage = `I couldn't find any ${place} within about ${radiusMeters} m of sensor ${stationName}.`;
+      } else {
+        const listed = nearby
+          .slice(0, 5)
+          .map((b) => `${b.label} (${b.distance_m} m)`)
+          .join(', ');
+        if (nearby.length === 1) {
+          userMessage = `The closest ${place.replace(/s$/, '') || 'building'} to sensor ${stationName} is ${listed}.`;
+        } else {
+          userMessage = `${place.charAt(0).toUpperCase() + place.slice(1)} closest to sensor ${stationName}: ${listed}`
+            + (nearby.length > 5 ? '…' : '')
+            + '.';
+        }
+      }
+
+      const gmlIds = nearby.map((b) => b.gml_id).filter((id): id is string => !!id);
+      const uiEffect = {
+        needsAck: true,
+        timeoutMs: 5000,
+        summary: `Highlight ${place} near sensor ${stationName}`
+      };
+
+      if (gmlIds.length) {
+        const matchExpr = gmlIdMatchExpression(gmlIds);
+        const styleDefinition = {
+          color: {
+            conditions: [
+              [matchExpr, toCesiumColorExpr(color)],
+              ['true', "color('white')"]
+            ]
+          }
+        };
+        const appliedResult = {
+          action: 'findBuildingsNearSensor',
+          station: stationName,
+          buildingClass,
+          radiusMeters,
+          color,
+          matchCount: nearby.length,
+          description: userMessage
+        };
+        await emitEvent('visualizationStyleChanged', {
+          userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
+          style: 'custom_filter',
+          styleName: `Near sensor ${stationName}: ${place}`,
+          styleDefinition,
+          appliedResult,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      return {
+        success: true,
+        message: userMessage,
+        userMessage,
+        station: stationName,
+        buildingClass,
+        radiusMeters,
+        color,
+        facts: {
+          station: stationName,
+          latitude: station.latitude,
+          longitude: station.longitude,
+          buildingClass,
+          radiusMeters,
+          matchCount: nearby.length,
+          buildings: nearby.map((b) => ({
+            label: b.label,
+            distance_m: b.distance_m,
+            gml_id: b.gml_id
+          }))
+        },
+        ...(gmlIds.length ? { uiEffect } : {})
+      };
+    } catch (error) {
+      console.error('Error in findBuildingsNearSensor handler:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       return { error: true, message: errorMessage };
     } finally {

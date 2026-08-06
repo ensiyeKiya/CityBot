@@ -387,7 +387,8 @@ async function main() {
       'loadSensors',
       'filterSensors',
       'removeSensors',
-      'getSensorMeasurement'
+      'getSensorMeasurement',
+      'findBuildingsNearSensor'
     ],
     knowledge: ['getWikipediaSummary']
   };

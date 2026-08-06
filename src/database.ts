@@ -426,6 +426,92 @@ export async function fetchBuildingCoordinatesByClass(
 }
 
 /**
+ * Fetch buildings near a WGS84 point, optionally limited to one citygml class.
+ * Ordered by distance ascending.
+ */
+export async function fetchBuildingsNearPoint(options: {
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+  classDescription?: string | null;
+  limit?: number;
+}): Promise<Array<{
+  gml_id: string | null;
+  latitude: number;
+  longitude: number;
+  distance_m: number;
+  class_description: string | null;
+  wiki_title_bg: string | null;
+  osm_name: string | null;
+  osm_name_en: string | null;
+  label: string;
+}>> {
+  const client = getDatabaseClient();
+  const radius = Number(options.radiusMeters) > 0 ? Number(options.radiusMeters) : 800;
+  const limit = Math.max(1, Math.min(Number(options.limit) || 20, 50));
+  const classDescription = options.classDescription ? String(options.classDescription) : null;
+
+  try {
+    const params: any[] = [options.longitude, options.latitude, radius];
+    let classClause = '';
+    if (classDescription) {
+      params.push(classDescription);
+      classClause = ` AND citygml_class_description = $${params.length}`;
+    }
+    params.push(limit);
+
+    const result = await client.query(
+      `SELECT
+         gml_id,
+         latitude,
+         longitude,
+         citygml_class_description,
+         wiki_title_bg,
+         osm_name,
+         osm_name_en,
+         ST_Distance(
+           ST_Point(longitude, latitude)::geography,
+           ST_Point($1, $2)::geography
+         ) AS distance_m
+       FROM buildings
+       WHERE latitude IS NOT NULL
+         AND longitude IS NOT NULL
+         AND ST_DWithin(
+           ST_Point(longitude, latitude)::geography,
+           ST_Point($1, $2)::geography,
+           $3
+         )
+         ${classClause}
+       ORDER BY distance_m ASC
+       LIMIT $${params.length}`,
+      params
+    );
+
+    return result.rows.map((row: any) => {
+      const label =
+        (row.wiki_title_bg && String(row.wiki_title_bg).trim())
+        || (row.osm_name_en && String(row.osm_name_en).trim())
+        || (row.osm_name && String(row.osm_name).trim())
+        || null;
+      return {
+        gml_id: row.gml_id ?? null,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        distance_m: Math.round(Number(row.distance_m)),
+        class_description: row.citygml_class_description ?? null,
+        wiki_title_bg: row.wiki_title_bg ?? null,
+        osm_name: row.osm_name ?? null,
+        osm_name_en: row.osm_name_en ?? null,
+        label: label || 'a nearby building'
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching buildings near point:', error);
+    throw error;
+  }
+}
+
+/**
  * Find buildings near a location
  */
 export async function findNearbyBuildings(latitude: number, longitude: number, radius: number = 500): Promise<any> {
