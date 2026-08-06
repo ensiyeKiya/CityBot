@@ -7,6 +7,7 @@
 
 import fetch from 'node-fetch';
 import { tracer, THING_IDS, SECURITY_SCHEME, USER_AGENT, createEmitEvent, httpForm, mqttEventForm } from './shared';
+import { fetchBuildingCoordinatesByClass } from '../database';
 import {
   OPERATOR_NAMES,
   QUALITY_CONFIG,
@@ -16,7 +17,10 @@ import {
   parameterFullName,
   pickMeasurementValue,
   fetchStationLastMeasurements,
-  evaluateSensorValueFilter
+  evaluateSensorValueFilter,
+  filterSensorsNearPoints,
+  resolveBuildingClass,
+  formatSensorNumber
 } from '../sofiaSensors';
 
 const TITLE = 'api';
@@ -194,30 +198,34 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. For ANY value question (quality bands, thresholds, worst/best), uses filterType quality|value|rank with parameter (PM2.5, NO2, …): the server fetches ALL live station readings for that parameter, evaluates them, and shows only matches (with facts: match count, highest/lowest). quality: good/moderate/poor/very poor/hazardous. value: ">20", "<50", or worst/best. rank: worst|best|top:5|bottom:5. operator/name only hide already-loaded pins by operator or station id (AT12) — do NOT use name for schools.',
+        description: 'Filter Sofia sensor stations. Compose with other tools for complex requests.\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings. quality=good/moderate/poor/very poor/hazardous; value=">20"|worst|best; rank=worst|best|top:5.\n- Proximity to buildings: filterType nearBuildings + filterValue = building class (any class: healthcare, schools/education, habitation/residential, commercial, industrial, sports, or the exact citygml class string) + optional radiusMeters (default 800) + optional parameter to color by a pollutant. Then optionally call filterBuildings with the same class so buildings are highlighted too.\n- operator/name: hide pins by operator or station id (AT12). Do not use name for building types.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
-              enum: ['quality', 'value', 'rank', 'operator', 'name'],
-              description: 'quality/value/rank evaluate all live readings server-side; operator/name filter pins already on the map'
+              enum: ['quality', 'value', 'rank', 'nearBuildings', 'operator', 'name'],
+              description: 'quality/value/rank = evaluate readings; nearBuildings = sensors near buildings of a class; operator/name = pin metadata filters'
             },
             filterValue: {
               type: 'string',
-              description: 'quality level, numeric expression (">20"), rank keyword (worst/best/top:5), operator name, or station id substring'
+              description: 'quality level, numeric/rank expression, building class (for nearBuildings), operator name, or station id substring'
             },
             parameter: {
               type: 'string',
-              description: 'Required for quality/value/rank. Parameter abbreviation (PM10, PM2.5, NO2, …).'
+              description: 'Pollutant/metric abbreviation (PM10, PM2.5, NO2, …). Required for quality/value/rank; optional for nearBuildings (colors/filters by that reading).'
             },
             operator: {
               type: 'string',
-              description: 'Optional operator scope when evaluating value filters (Airthings / City Lab / EXEA).'
+              description: 'Optional sensor-operator scope (Airthings / City Lab / EXEA).'
+            },
+            radiusMeters: {
+              type: 'number',
+              description: 'For nearBuildings: distance threshold in meters (default 800).'
             },
             limit: {
               type: 'number',
-              description: 'For rank/worst/best: how many stations to keep (default 1 for worst/best via value, 5 for rank).'
+              description: 'For rank/worst/best: how many stations to keep.'
             },
             userId: { type: 'string' }
           },
@@ -542,7 +550,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         const unit = QUALITY_CONFIG[evaluated.parameter]?.unit || '';
         const matchList = evaluated.matching
           .slice(0, 8)
-          .map((r) => `${r.station}=${r.value}${unit ? ` ${unit}` : ''}`)
+          .map((r) => `${r.station}=${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''}`)
           .join(', ');
 
         let userMessage: string;
@@ -552,7 +560,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           const hi = evaluated.highest;
           userMessage = `None of the ${evaluated.all.length} stations with ${evaluated.parameter} match ${filterType} "${filterValue}".`
             + (hi
-              ? ` Highest current ${evaluated.parameter} is ${hi.value}${unit ? ` ${unit}` : ''} at ${hi.station}.`
+              ? ` Highest current ${evaluated.parameter} is ${formatSensorNumber(hi.value)}${unit ? ` ${unit}` : ''} at ${hi.station}.`
               : '');
         } else if (filterType === 'rank' || ['worst', 'best', 'highest', 'lowest', 'max', 'min', 'maximum', 'minimum'].includes(filterValue.toLowerCase())) {
           userMessage = `Checked all ${evaluated.all.length} stations for ${evaluated.parameter}. `
@@ -607,6 +615,89 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             needsAck: true,
             timeoutMs: 8000,
             summary: `Show ${evaluated.matching.length} sensors matching ${filterType} ${filterValue}`
+          }
+        };
+      }
+
+      // Sensors near buildings of any class (generic spatial join).
+      if (filterType === 'nearBuildings') {
+        const buildingClass = resolveBuildingClass(filterValue);
+        const radiusMeters = Number(input.radiusMeters) > 0 ? Number(input.radiusMeters) : 800;
+        const loaded = await loadSensorNetwork({
+          operator: input.operator,
+          parameter
+        });
+        const buildingPoints = await fetchBuildingCoordinatesByClass(buildingClass);
+        if (!buildingPoints.length) {
+          return {
+            error: true,
+            message: `No buildings found for class "${buildingClass}". Use an exact citygml class or aliases like healthcare, schools, habitation, commercial, industrial, sports.`
+          };
+        }
+
+        const nearby = filterSensorsNearPoints(loaded.sensors, buildingPoints, radiusMeters);
+        const unit = parameter && QUALITY_CONFIG[parameter] ? QUALITY_CONFIG[parameter].unit : '';
+        const sample = nearby
+          .slice(0, 8)
+          .map((f) => {
+            const name = String(f.properties.object || 'Sensor');
+            const dist = f.properties.nearestDistanceM;
+            const val = parameter != null ? f.properties.currentValue : null;
+            const valPart = typeof val === 'number'
+              ? `, ${parameter}=${formatSensorNumber(val)}${unit ? ` ${unit}` : ''}`
+              : '';
+            return `${name} (${dist} m${valPart})`;
+          })
+          .join('; ');
+
+        let userMessage: string;
+        if (!nearby.length) {
+          userMessage = `None of the ${loaded.sensorCount} sensors are within ${radiusMeters} m of ${buildingClass} buildings (${buildingPoints.length} buildings checked).`;
+        } else {
+          userMessage = `${nearby.length} of ${loaded.sensorCount} sensors are within ${radiusMeters} m of ${buildingClass} (${buildingPoints.length} buildings).`
+            + (sample ? ` Nearest: ${sample}${nearby.length > 8 ? '…' : ''}.` : '');
+        }
+
+        await emitEvent('sensorsChanged', {
+          action: 'load',
+          userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
+          operator: loaded.operator,
+          parameter,
+          sensors: nearby,
+          sensorCount: nearby.length,
+          show: true,
+          filterType,
+          filterValue: buildingClass,
+          radiusMeters,
+          appliedResult: { description: userMessage },
+          timestamp: new Date().toISOString()
+        });
+
+        return {
+          success: true,
+          message: userMessage,
+          userMessage,
+          filterType,
+          filterValue: buildingClass,
+          parameter,
+          facts: {
+            buildingClass,
+            buildingCount: buildingPoints.length,
+            radiusMeters,
+            checkedSensors: loaded.sensorCount,
+            matchCount: nearby.length,
+            matches: nearby.slice(0, 20).map((f) => ({
+              station: f.properties.object,
+              distanceM: f.properties.nearestDistanceM,
+              value: parameter != null ? f.properties.currentValue ?? null : null
+            }))
+          },
+          uiEffect: {
+            needsAck: true,
+            timeoutMs: 8000,
+            summary: `Show ${nearby.length} sensors near ${buildingClass}`
           }
         };
       }

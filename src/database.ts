@@ -396,6 +396,36 @@ export async function analyzeBuilding(gmlId: string): Promise<any> {
 }
 
 /**
+ * Fetch building centroids for an exact citygml_class_description value.
+ * Used for generic spatial joins (e.g. sensors near any building class).
+ */
+export async function fetchBuildingCoordinatesByClass(
+  classDescription: string
+): Promise<Array<{ latitude: number; longitude: number; gml_id: string | null }>> {
+  const client = getDatabaseClient();
+  try {
+    const result = await client.query(
+      `SELECT gml_id, latitude, longitude
+       FROM buildings
+       WHERE citygml_class_description = $1
+         AND latitude IS NOT NULL
+         AND longitude IS NOT NULL`,
+      [classDescription]
+    );
+    return result.rows.map((row: any) => ({
+      gml_id: row.gml_id ?? null,
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude)
+    })).filter((p: { latitude: number; longitude: number }) =>
+      Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
+    );
+  } catch (error) {
+    console.error('Error fetching building coordinates by class:', error);
+    throw error;
+  }
+}
+
+/**
  * Find buildings near a location
  */
 export async function findNearbyBuildings(latitude: number, longitude: number, radius: number = 500): Promise<any> {

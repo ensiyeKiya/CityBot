@@ -320,21 +320,14 @@ export async function loadSensorNetwork(options: {
   const parameter = resolveParameterAbbrev(options.parameter);
   const parameterFull = parameter ? parameterFullName(parameter) : null;
 
-  let stations: StationInfo[];
-  if (operator) {
-    stations = await fetchStationsByOperator(operator);
-  } else if (parameterFull) {
-    stations = await fetchStationsByParameter(parameterFull);
-  } else {
-    stations = await fetchAllStations();
-  }
+  // Always load the full station list (per operator or all). The
+  // /stations/measure/parameter endpoint is incomplete vs lastmeasurements,
+  // so we filter by which stations actually have a reading for `parameter`.
+  let stations: StationInfo[] = operator
+    ? await fetchStationsByOperator(operator)
+    : await fetchAllStations();
 
-  if (operator && parameterFull) {
-    const byParam = await fetchStationsByParameter(parameterFull);
-    const allowed = new Set(byParam.map((s) => s.name.toUpperCase()));
-    stations = stations.filter((s) => allowed.has(s.name.toUpperCase()));
-  } else if (!operator && parameter) {
-    // Restrict to operators that measure this parameter
+  if (!operator && parameter) {
     const allowedOps = new Set(operatorsForParameter(parameter));
     stations = stations.filter((s) => {
       try {
@@ -527,6 +520,109 @@ export async function evaluateSensorValueFilter(options: {
     highest,
     lowest
   };
+}
+
+/** Haversine distance in meters between two WGS84 points. */
+export function distanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+export interface LonLat {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Keep sensors within `radiusMeters` of ANY reference point (building centroids, etc.).
+ * Generic spatial filter — callers supply the points for whatever building class/query they need.
+ */
+export function filterSensorsNearPoints(
+  sensors: SensorGeoJsonFeature[],
+  points: LonLat[],
+  radiusMeters: number
+): Array<SensorGeoJsonFeature & { properties: Record<string, unknown> & { nearestDistanceM: number } }> {
+  if (!points.length) return [];
+  const out: Array<SensorGeoJsonFeature & { properties: Record<string, unknown> & { nearestDistanceM: number } }> = [];
+  for (const feature of sensors) {
+    const [lon, lat] = feature.geometry.coordinates;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    let nearest = Infinity;
+    for (const p of points) {
+      const d = distanceMeters(lat, lon, p.latitude, p.longitude);
+      if (d < nearest) nearest = d;
+    }
+    if (nearest <= radiusMeters) {
+      out.push({
+        ...feature,
+        properties: {
+          ...feature.properties,
+          nearestDistanceM: Math.round(nearest)
+        }
+      });
+    }
+  }
+  out.sort(
+    (a, b) =>
+      (a.properties.nearestDistanceM as number) - (b.properties.nearestDistanceM as number)
+  );
+  return out;
+}
+
+/** Resolve casual class names to exact citygml_class_description values. */
+export function resolveBuildingClass(input: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) throw new Error('building class is required');
+  const key = raw.toLowerCase();
+  const aliases: Record<string, string> = {
+    school: 'schools, education, research',
+    schools: 'schools, education, research',
+    education: 'schools, education, research',
+    research: 'schools, education, research',
+    'schools, education, research': 'schools, education, research',
+    hospital: 'healthcare',
+    hospitals: 'healthcare',
+    healthcare: 'healthcare',
+    clinic: 'healthcare',
+    clinics: 'healthcare',
+    residential: 'habitation',
+    habitation: 'habitation',
+    housing: 'habitation',
+    commercial: 'business, trade',
+    business: 'business, trade',
+    trade: 'business, trade',
+    'business, trade': 'business, trade',
+    office: 'business, trade',
+    offices: 'business, trade',
+    industrial: 'industry',
+    industry: 'industry',
+    sport: 'sport',
+    sports: 'sport',
+    recreation: 'sport',
+    administration: 'administration',
+    culture: 'culture',
+    church: 'church institution',
+    'church institution': 'church institution',
+    storage: 'storage',
+    traffic: 'traffic'
+  };
+  return aliases[key] || raw;
+}
+
+export function formatSensorNumber(value: number, digits = 2): string {
+  if (!Number.isFinite(value)) return String(value);
+  return String(Number(value.toFixed(digits)));
 }
 
 /** Latest measurements for one station via Sofia Sensors API. */
