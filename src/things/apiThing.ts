@@ -198,18 +198,18 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. Compose with other tools for complex requests.\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings. quality=good/moderate/poor/very poor/hazardous; value=">20"|worst|best; rank=worst|best|top:5.\n- Proximity to buildings: filterType nearBuildings + filterValue = building class (any class: healthcare, schools/education, habitation/residential, commercial, industrial, sports, or the exact citygml class string) + optional radiusMeters (default 800) + optional parameter to color by a pollutant. Then optionally call filterBuildings with the same class so buildings are highlighted too.\n- operator/name: hide pins by operator or station id (AT12). Do not use name for building types.',
+        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args). Compose with other tools for complex requests.\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings. quality=good/moderate/poor/very poor/hazardous; value=">20"|worst|best; rank=worst|best|top:5.\n- Proximity to buildings: filterType nearBuildings + filterValue = building class (any class: healthcare, schools/education, habitation/residential, commercial, industrial, sports, or the exact citygml class string) + optional radiusMeters (default 800) + optional parameter to color by a pollutant. Then optionally call filterBuildings with the same class so buildings are highlighted too.\n- operator/name: hide pins by operator or station id (AT12). Do not use name for building types.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
               enum: ['quality', 'value', 'rank', 'nearBuildings', 'operator', 'name'],
-              description: 'quality/value/rank = evaluate readings; nearBuildings = sensors near buildings of a class; operator/name = pin metadata filters'
+              description: 'Required. quality/value/rank = evaluate readings; nearBuildings = sensors near buildings of a class; operator/name = pin metadata filters'
             },
             filterValue: {
               type: 'string',
-              description: 'quality level, numeric/rank expression, building class (for nearBuildings), operator name, or station id substring'
+              description: 'Required. quality level, numeric/rank expression, building class (for nearBuildings), operator name, or station id substring'
             },
             parameter: {
               type: 'string',
@@ -227,9 +227,14 @@ export async function exposeApiThing(WoT: any): Promise<any> {
               type: 'number',
               description: 'For rank/worst/best: how many stations to keep.'
             },
-            userId: { type: 'string' }
-          },
-          required: ['filterType', 'filterValue']
+            // Injected by the LLM gateway — listed so empty model args still validate
+            userId: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            _userId: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            _requestId: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            _toolCallId: { oneOf: [{ type: 'string' }, { type: 'null' }] }
+          }
+          // filterType/filterValue validated in the handler (not TD required) so a bad/empty
+          // model call returns a clear error instead of a WoT DataSchema exception.
         },
         output: { type: 'object' },
         forms: httpForm(TITLE, 'actions', 'filterSensors', ['invokeaction'])
@@ -519,8 +524,11 @@ export async function exposeApiThing(WoT: any): Promise<any> {
       if (!userId) {
         return { error: true, message: 'userId is required' };
       }
-      if (!input?.filterType || input.filterValue === undefined || input.filterValue === null) {
-        return { error: true, message: 'filterType and filterValue are required' };
+      if (!input?.filterType || input.filterValue === undefined || input.filterValue === null || input.filterValue === '') {
+        return {
+          error: true,
+          message: 'filterType and filterValue are required. Examples: {filterType:"rank", filterValue:"top:5", parameter:"PM2.5"} or {filterType:"nearBuildings", filterValue:"healthcare", parameter:"PM2.5"}.'
+        };
       }
 
       const filterType = String(input.filterType);
