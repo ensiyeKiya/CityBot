@@ -14,7 +14,6 @@ import {
   loadSensorNetwork,
   resolveOperator,
   resolveParameterAbbrev,
-  pickMeasurementValue,
   fetchStationLastMeasurements,
   evaluateSensorValueFilter,
   filterSensorsNearPoints,
@@ -293,7 +292,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'getWeather', ['invokeaction'])
       },
       getCoordinates: {
-        description: 'Converts a location name (city, landmark, address) into geographic coordinates (latitude, longitude). Call this before flyTo or setCameraView when you only have a location name. Returns coordinates with proper decimal formatting (e.g., 48.8566, not 48588897). Latitude range: -90 to 90. Longitude range: -180 to 180.',
+        description: 'Converts a place name into latitude/longitude. Always call this before flyTo when you only have a name — never guess coordinates (even for well-known Sofia places). "Sofia" without a country means Sofia, Bulgaria. Returns decimal degrees (lat −90..90, lon −180..180).',
         input: {
           type: 'object',
           properties: {
@@ -318,13 +317,13 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'reverseGeocode', ['invokeaction'])
       },
       loadSensors: {
-        description: `Loads Sofia environmental sensor stations onto the 3D map as colored pins (GATE CityLab Sofia Sensors). Operators: ${OPERATOR_NAMES.join('; ')} (aliases: Airthings=Sofia municipality, City Lab=GATE Institute, EXEA=ExEA). Optional parameter colors pins by that reading (PM10, PM2.5, NO2, O3, CO, T, RH, …). Omit operator to show all operators; omit parameter to show stations without value-based coloring. Use for "show sensors", "show PM2.5 sensors", "show ExEA stations".`,
+        description: `Loads Sofia environmental sensor stations as colored map pins (GATE CityLab). Use for "show sensors", "show PM10 sensors". Pass parameter (PM10, PM2.5, NO2, …) to color by that reading. Do NOT pass operator unless the user names one (GATE/City Lab, Sofia municipality/Airthings, ExEA) — omitting operator loads ALL operators (~30+ PM10 stations). Stations without a live reading still appear (uncolored).`,
         input: {
           type: 'object',
           properties: {
             operator: {
               type: 'string',
-              description: `Optional operator filter. Canonical: ${OPERATOR_NAMES.join(', ')}. Aliases: Airthings, City Lab, EXEA.`
+              description: `Only when the user names an operator. Canonical: ${OPERATOR_NAMES.join(', ')}. Aliases: Airthings, City Lab, EXEA. Omit for all operators.`
             },
             parameter: {
               type: 'string',
@@ -337,7 +336,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue (never call with empty args).\n- Value questions: filterType quality|value|rank + parameter (PM2.5, NO2, …). Server checks ALL live readings.\n- nearBuildings: ONLY when the user asks which/show SENSORS near a building type (hospitals, schools, …). Reloads sensor pins. Do NOT use nearBuildings for "which schools are close to sensor A1 / close to it" — that is findBuildingsNearSensor.\n- operator/name: hide pins by operator or station id. Do not use name for building types.',
+        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue.\n- Worst / top N / numeric: filterType rank|value + parameter. "worst"/"highest" → 1 station; "top:5" → five. Prefer rank/value over quality bands unless the user names a band (hazardous/poor/…). Hazardous ≠ worst.\n- nearBuildings: ONLY for SENSORS near a building class (hospitals, schools, …). Optional parameter + radiusMeters. To also highlight those buildings, call filterBuildings with the same class. Do NOT use for "schools close to sensor A1/it" — that is findBuildingsNearSensor.\n- operator/name: hide by operator or station id (not building types).\nReplaces pins with the matching set.',
         input: {
           type: 'object',
           properties: {
@@ -390,7 +389,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'removeSensors', ['invokeaction'])
       },
       getSensorMeasurement: {
-        description: 'Reads the latest measurement for one Sofia Sensors station (e.g. AT12, AE1, A5). Use for questions like "what is the current NO2 at AT12?". Does not change the map unless also followed by loadSensors. Station ids: AT* (Airthings/Sofia municipality), AE* (ExEA), A* (GATE/City Lab).',
+        description: 'Reads the latest measurement for one station (e.g. "what is the current PM10 at A1?"). Uses the same live network values as filterSensors/loadSensors (rounded). Does not change the map. Station ids: AT* (Sofia municipality), AE* (ExEA), A* (GATE/City Lab).',
         input: {
           type: 'object',
           properties: {
@@ -409,7 +408,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'getSensorMeasurement', ['invokeaction'])
       },
       findBuildingsNearSensor: {
-        description: 'Find buildings of a given class near ONE sensor station and highlight them on the map. Use for "which schools are close to it/A1?", "hospitals near the worst PM10 sensor", "what is around station AE5?". Pass the station id from conversation context (e.g. A1). Do NOT use filterSensors nearBuildings for this — that finds sensors near buildings (opposite direction).',
+        description: 'Find and highlight buildings of a class near ONE sensor station. Use for "which schools are close to it/A1?", "hospitals near the worst PM10 sensor". Pass station id from context (e.g. A1). Casual class names OK (schools, hospitals). Default radius 800m. Do NOT use filterSensors nearBuildings — that is the opposite direction (sensors near buildings).',
         input: {
           type: 'object',
           properties: {
@@ -973,30 +972,75 @@ export async function exposeApiThing(WoT: any): Promise<any> {
     try {
       const input = await extractInput(params);
       if (!input?.station) {
-        return { error: true, message: 'station is required (e.g. AT12)' };
+        return {
+          error: true,
+          message: 'station is required (e.g. AT12)',
+          userMessage: 'Please name a sensor station (e.g. A1, AT12).'
+        };
       }
 
       const station = String(input.station).trim().toUpperCase();
       const parameter = input.parameter ? resolveParameterAbbrev(input.parameter) : null;
-      const data = await fetchStationLastMeasurements(station);
-      const value = parameter
-        ? pickMeasurementValue(data.measurements, parameter)
-        : null;
+
+      // Same live network path as filterSensors/loadSensors so values stay consistent.
+      const info = await findStationByName(station);
+      if (!info) {
+        const userMessage = `I couldn't find sensor station ${station} in the Sofia Sensors network.`;
+        return { error: true, message: userMessage, userMessage };
+      }
+      let operatorName: string | null = null;
+      try {
+        operatorName = resolveOperator(info.operator);
+      } catch {
+        operatorName = null;
+      }
+
+      const loaded = await loadSensorNetwork({
+        operator: operatorName,
+        parameter
+      });
+      const feature = loaded.sensors.find(
+        (f) => String(f.properties.station_name || '').toUpperCase() === station
+      );
+      const dateMeasured =
+        (feature?.properties.date_measured as string | null | undefined) || null;
 
       let userMessage: string;
+      let value: number | null = null;
       if (parameter) {
+        const raw = feature?.properties.currentValue;
+        value = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
         const unit = sensorUnit(parameter);
         userMessage = value === null
           ? `No latest ${parameter} reading is available for station ${station}.`
-          : `Latest ${parameter} at ${station} is ${value}${unit ? ` ${unit}` : ''}`
-            + (data.date_measured ? ` (measured ${data.date_measured}).` : '.');
+          : `Latest ${parameter} at ${station} is ${formatSensorNumber(value)}${unit ? ` ${unit}` : ''}`
+            + (dateMeasured ? ` (measured ${dateMeasured}).` : '.');
       } else {
+        const data = await fetchStationLastMeasurements(station);
         const entries = Object.entries(data.measurements || {})
-          .filter(([, v]) => v !== null && v !== undefined)
-          .map(([k, v]) => `${k}: ${v}`);
+          .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+          .map(([k, v]) => `${k}: ${formatSensorNumber(v as number)}`);
         userMessage = entries.length
           ? `Latest readings at ${station}: ${entries.join(', ')}.`
           : `No latest measurements are available for station ${station}.`;
+        return {
+          success: true,
+          message: userMessage,
+          userMessage,
+          station,
+          operator: data.operator,
+          parameter,
+          value: null,
+          date_measured: data.date_measured,
+          measurements: data.measurements,
+          facts: {
+            station,
+            operator: data.operator,
+            parameter,
+            value: null,
+            date_measured: data.date_measured
+          }
+        };
       }
 
       return {
@@ -1004,23 +1048,26 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         message: userMessage,
         userMessage,
         station,
-        operator: data.operator,
+        operator: operatorName,
         parameter,
         value,
-        date_measured: data.date_measured,
-        measurements: data.measurements,
+        date_measured: dateMeasured,
         facts: {
           station,
-          operator: data.operator,
+          operator: operatorName,
           parameter,
           value,
-          date_measured: data.date_measured
+          date_measured: dateMeasured
         }
       };
     } catch (error) {
       console.error('Error in getSensorMeasurement handler:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { error: true, message: errorMessage };
+      return {
+        error: true,
+        message: errorMessage,
+        userMessage: 'I could not read that sensor measurement right now. Please try again.'
+      };
     } finally {
       span.end();
     }
@@ -1028,37 +1075,51 @@ export async function exposeApiThing(WoT: any): Promise<any> {
 
   thing.setActionHandler('findBuildingsNearSensor', async (params: any) => {
     const span = tracer.startSpan('findBuildingsNearSensor');
+    let stationName = '';
+    let place = 'buildings';
     try {
       const input = await extractInput(params);
       const userId = input?._userId ?? input?.userId ?? null;
       if (!userId) {
-        return { error: true, message: 'userId is required' };
+        return {
+          error: true,
+          message: 'userId is required',
+          userMessage: 'I could not look up buildings near that sensor (missing user session).'
+        };
       }
       if (!input?.station) {
-        return { error: true, message: 'station is required (e.g. A1)' };
+        return {
+          error: true,
+          message: 'station is required (e.g. A1)',
+          userMessage: 'Please name a sensor station (e.g. A1) to find nearby buildings.'
+        };
       }
       if (!input?.buildingClass) {
-        return { error: true, message: 'buildingClass is required (e.g. schools, healthcare)' };
+        return {
+          error: true,
+          message: 'buildingClass is required (e.g. schools, healthcare)',
+          userMessage: 'Please say which building type to search for near the sensor (e.g. schools).'
+        };
       }
 
-      const stationName = String(input.station).trim().toUpperCase();
+      stationName = String(input.station).trim().toUpperCase();
       const buildingClass = resolveBuildingClass(String(input.buildingClass));
-      const place = friendlyBuildingClassLabel(buildingClass);
+      place = friendlyBuildingClassLabel(buildingClass);
       const radiusMeters = Number(input.radiusMeters) > 0 ? Number(input.radiusMeters) : 800;
       const limit = Number(input.limit) > 0 ? Number(input.limit) : 10;
       const color = String(input.color || 'red').trim() || 'red';
 
       const station = await findStationByName(stationName);
-      if (!station || typeof station.latitude !== 'number' || typeof station.longitude !== 'number') {
-        return {
-          error: true,
-          message: `I couldn't find sensor station ${stationName} in the Sofia Sensors network.`
-        };
+      const lat = Number(station?.latitude);
+      const lon = Number(station?.longitude);
+      if (!station || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        const userMessage = `I couldn't find sensor station ${stationName} in the Sofia Sensors network.`;
+        return { error: true, message: userMessage, userMessage };
       }
 
       const nearby = await fetchBuildingsNearPoint({
-        latitude: station.latitude,
-        longitude: station.longitude,
+        latitude: lat,
+        longitude: lon,
         radiusMeters,
         classDescription: buildingClass,
         limit
@@ -1129,8 +1190,8 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         color,
         facts: {
           station: stationName,
-          latitude: station.latitude,
-          longitude: station.longitude,
+          latitude: lat,
+          longitude: lon,
           buildingClass,
           radiusMeters,
           matchCount: nearby.length,
@@ -1145,7 +1206,10 @@ export async function exposeApiThing(WoT: any): Promise<any> {
     } catch (error) {
       console.error('Error in findBuildingsNearSensor handler:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { error: true, message: errorMessage };
+      const userMessage = stationName
+        ? `There was a problem finding ${place} near sensor ${stationName}. Please try again.`
+        : `There was a problem finding nearby buildings. Please try again.`;
+      return { error: true, message: errorMessage, userMessage };
     } finally {
       span.end();
     }

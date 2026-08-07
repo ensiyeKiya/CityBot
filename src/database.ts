@@ -460,6 +460,7 @@ export async function fetchBuildingsNearPoint(options: {
     }
     params.push(limit);
 
+    // Explicit WGS84 geography — bare ST_Point::geography is unreliable across PostGIS versions.
     const result = await client.query(
       `SELECT
          gml_id,
@@ -470,15 +471,15 @@ export async function fetchBuildingsNearPoint(options: {
          osm_name,
          osm_name_en,
          ST_Distance(
-           ST_Point(longitude, latitude)::geography,
-           ST_Point($1, $2)::geography
+           ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
+           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
          ) AS distance_m
        FROM buildings
        WHERE latitude IS NOT NULL
          AND longitude IS NOT NULL
          AND ST_DWithin(
-           ST_Point(longitude, latitude)::geography,
-           ST_Point($1, $2)::geography,
+           ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
+           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
            $3
          )
          ${classClause}

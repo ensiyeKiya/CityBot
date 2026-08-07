@@ -151,7 +151,7 @@ function collectUserMessagesFromTools(conversation: any[]): string | null {
     if (msg?.role !== 'tool') continue;
     let parsed: any;
     try { parsed = JSON.parse(String(msg.content ?? '')); } catch { continue; }
-    if (parsed?.error) continue;
+    // Prefer domain-authored userMessage even on error (avoids the model inventing text).
     const text = typeof parsed?.userMessage === 'string' ? parsed.userMessage.trim() : '';
     if (text) parts.push(text);
   }
@@ -1088,8 +1088,8 @@ async function main() {
             },
             status: {
               type: 'string',
-              enum: ['applied', 'failed', 'pending'],
-              description: 'Whether the UI successfully applied the change'
+              enum: ['applied', 'failed', 'pending', 'queued'],
+              description: 'applied = visible now; queued = accepted pending tiles load; failed/pending = not confirmed'
             },
             summary: {
               type: 'string',
@@ -1126,7 +1126,7 @@ async function main() {
     requestId?: string;
     toolCallId?: string;
     kind: string;
-    status: 'applied' | 'failed' | 'pending';
+    status: 'applied' | 'failed' | 'pending' | 'queued';
     summary: string;
     details?: any;
     timestamp: string;
@@ -1199,14 +1199,15 @@ async function main() {
     const uiStatus = await waitForUiStatus(toolCallId, timeoutMs);
     if (uiStatus) {
       console.log(`✅ [${requestId}] UI ack: ${uiStatus.status} — ${uiStatus.summary}`);
-      const applied = uiStatus.status === 'applied';
+      // "queued" = accepted pending tiles load; treat like applied for spoken answers.
+      const applied = uiStatus.status === 'applied' || uiStatus.status === 'queued';
       // Keep domain userMessage on success; on UI failure, append a presentation note.
       // Do not rewrite sensor replies with pin counts — domain text is the spoken answer.
       let userMessage = typeof toolResult.userMessage === 'string' ? toolResult.userMessage : undefined;
       if (userMessage && !applied) {
         userMessage = `${userMessage} (The browser did not confirm the map update: ${uiStatus.status}.)`;
       } else if (
-        applied &&
+        uiStatus.status === 'applied' &&
         toolName === 'filterSensors' &&
         typeof uiStatus.details?.visibleCount === 'number' &&
         uiStatus.details.visibleCount === 0

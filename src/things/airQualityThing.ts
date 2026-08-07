@@ -120,7 +120,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         forms: httpForm(TITLE, 'actions', 'replayPollution', ['invokeaction'])
       },
       replayPrediction: {
-        description: `Replays FORECAST / predicted PM10 air pollution on the 3D map as animated colored clouds. Use when the user asks for "prediction", "forecast", "future pollution", "next 24 hours", or "predicted air quality". Do NOT pass startDate — the forecast window comes from the ML model. Only PM10. Available cities: ${availableCities.join(', ')}. Available forecast horizons: ${horizonSummary}. Default city: Sofia.`,
+        description: `Replays FORECAST / predicted PM10 air pollution as animated clouds. Use for "prediction", "forecast", "next 24 hours", "future pollution" — NOT for past dates (use replayPollution). Do NOT pass startDate; playback starts from the current hour of the available forecast (past forecast hours are skipped). Only PM10. Optional hours (1–${maxPredictionHours}). Available cities: ${availableCities.join(', ')}. Horizons: ${horizonSummary}. Default city: Sofia.`,
         input: {
           type: 'object',
           properties: {
@@ -319,17 +319,9 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       }
 
       const cityLabel = cityName || 'Sofia';
-      const forecastAgeHours = predictionData.startDate
-        ? Math.round((Date.now() - Date.parse(predictionData.startDate)) / 3600000)
-        : null;
       let userMessage =
         `PM10 forecast for ${cityLabel} is now playing on the map`
-        + (predictionData.model ? ` (${predictionData.model})` : '')
         + ` — ${predictionData.hoursReturned} hours from ${predictionData.startDate}.`;
-      if (forecastAgeHours != null && forecastAgeHours > 36) {
-        userMessage +=
-          ` Note: this forecast run starts about ${Math.round(forecastAgeHours / 24)} days ago, not from the current hour — the prediction pipeline may need a refresh.`;
-      }
 
       await emitEvent('pollutionReplay', {
         action: 'start',

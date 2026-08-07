@@ -10,6 +10,7 @@
 import { STYLE_DEFINITIONS, STYLE_NAMES, VALID_STYLES } from '../visualizationStyles';
 import { generateDynamicStyle, getDatabaseStatistics, BUILDING_CLASS_COLORS } from '../buildingVisualizationHelpers';
 import { countBuildingsMatching } from '../database';
+import { resolveBuildingClass } from '../sofiaSensors';
 import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
 
 const TITLE = 'citymodel';
@@ -494,35 +495,35 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'setCameraView', ['invokeaction'])
       },
       flyTo: {
-        description: "Primary navigation tool for moving the camera to locations. Accepts only numeric coordinates (latitude, longitude, height)—never location names. If you have a location name, call getCoordinates first to get coordinates. Height guidelines: 1000-3000m for close-up views, 3000-7000m for medium views, 7000m+ for wide views. For zoom operations: use zoomOperation 'in' (get closer) or 'out' (get farther) with currentMapState coordinates.",
+        description: "Primary navigation tool. Accepts only numeric latitude/longitude/height — never place names (call getCoordinates first). Height tips: 500–3000m close-up, 3000–10000m medium, 50000m+ wide. For \"zoom in/out\" (no place): set zoomOperation to 'in' or 'out' and pass currentMapState latitude/longitude/height — zoom is relative to that height (min 100m). For \"zoom to [place]\": getCoordinates, then flyTo with a close-up height (500–3000m), zoomOperation omitted or 'none'.",
         input: {
           type: 'object',
           properties: {
             latitude: {
               type: 'number',
-              description: 'Latitude in degrees'
+              description: 'Latitude in degrees (−90..90). Required for place navigation; for zoom in/out use currentMapState.latitude.'
             },
             longitude: {
               type: 'number',
-              description: 'Longitude in degrees'
+              description: 'Longitude in degrees (−180..180). Required for place navigation; for zoom in/out use currentMapState.longitude.'
             },
             height: {
               type: 'number',
-              description: 'Height in meters. Use 1000-5000m for close-up, 10000-50000m for medium view, 100000m+ for wide view'
+              description: 'Camera height in meters (min 100). For zoom in/out pass currentMapState.height so the relative zoom is correct.'
             },
             location: {
               type: 'string',
-              description: 'Human-readable location name'
+              description: 'Human-readable location name for display only (not geocoded)'
             },
             zoomOperation: {
               type: 'string',
               enum: ['in', 'out', 'none'],
-              description: 'Use "in" for zoom in, "out" for zoom out, "none" for regular navigation. When specified, use current camera position for lat/lon.'
+              description: '"in" = closer (height /= zoomFactor, min 100m), "out" = farther, "none"/omit = fly to absolute lat/lon/height'
             },
             zoomFactor: {
               type: 'number',
               default: 2.0,
-              description: 'Zoom factor for zoom operations (default 2.0)'
+              description: 'Multiplier for zoom in/out (default 2.0)'
             }
           },
           required: []
@@ -571,7 +572,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'setVisualizationStyle', ['invokeaction'])
       },
       filterBuildings: {
-        description: 'Highlights buildings matching specific criteria in color while showing non-matching buildings in white. Supports single filters, multi-condition AND/OR filters, and shared AND constraints. Load Sofia 3D tiles first if not already loaded.\n\nSINGLE FILTER: set filterType + filterValue + optional color.\nMULTI-CONDITION: set "filters" array instead (filterType/filterValue are ignored). Use combineMode "AND" (default) to highlight only buildings matching ALL conditions in one shared color (e.g. tall healthcare buildings). Use combineMode "OR" to highlight each condition group independently in its own color (e.g. hospitals in blue AND schools in red).\nADD ALSO: when the user asks to add another building type while some are already highlighted ("add schools too", "also show hospitals"), call filterBuildings with combineMode "OR" including BOTH the previous class(es) and the new one — do not call filterSensors/nearBuildings unless they also asked about sensors.\nSHARED CONSTRAINT: set "andFilters" to apply extra AND conditions to EVERY matching group. Example — schools red + hospitals blue + sports orange, all taller than 30 m: filters=[{filterType:"class",filterValue:"schools, education, research",color:"red"},{filterType:"class",filterValue:"healthcare",color:"blue"},{filterType:"class",filterValue:"sport",color:"orange"}], combineMode:"OR", andFilters=[{filterType:"height",filterValue:">=30"}].\n\nfilterType values: "class" (building type), "walkability" (0-100), "height" (meters), "energy LTB" (kWh/m²/yr lower bound), "energy UTB" (kWh/m²/yr upper bound), "uhi4" (heat island at 4 pm °C), "uhi9" (heat island at 9 pm °C), "sunhours" (avg daily sun hours), "none" (reset).\nClass names: "healthcare", "administration", "schools, education, research", "business, trade", "habitation", "culture", "sport", "industry", "storage", "traffic", "church institution".\nNumeric thresholds: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26; sunhours high>=6 low<4.',
+        description: 'Highlights matching buildings in color (others white). Load Sofia tiles first if needed. Use for city-wide building questions — not for the one clicked building.\n\nSINGLE: filterType + filterValue + optional color.\nAND (all criteria, one color): filters=[...] combineMode "AND" (default). Example tall hospitals: filters=[{filterType:"class",filterValue:"healthcare"},{filterType:"height",filterValue:">=30"}].\nOR (each group its own color): combineMode "OR". Example hospitals blue + schools red: filters=[{filterType:"class",filterValue:"healthcare",color:"blue"},{filterType:"class",filterValue:"schools",color:"red"}].\nADD ALSO ("add hospitals too"): call again with combineMode "OR" including BOTH previous class(es) and the new one. Do NOT call filterSensors unless the user also asked about sensors.\nSHARED AND on every OR group: andFilters (e.g. height>=30 on schools+hospitals).\nReset: filterType "none".\n\nfilterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours | none.\nClass: casual names OK (schools, hospitals, residential, …) — server maps to DB values (schools, education, research / healthcare / habitation / …).\nNumeric tips: walkability high>=80 low<30; height tall>=50 short<10; energy LTB efficient<=48 inefficient>=58; energy UTB efficient<=300 inefficient>=750; uhi4 hot>=28; uhi9 hot>=26; sunhours high>=6 low<4. Values: ">=80", "50", or "20-30".\nFor coloring ALL buildings by a metric use setVisualizationStyle instead.',
         input: {
           type: 'object',
           properties: {
@@ -582,21 +583,21 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             },
             filterValue: {
               type: 'string',
-              description: 'Filter value for single-condition use. Numeric types accept: single threshold (">=80", "50") or inclusive range ("20-30"). Class uses exact class name. Ignored when "filters" array is provided.'
+              description: 'Single-condition value. Numeric: ">=80", "50", or "20-30". Class: casual or exact name (schools, hospitals, healthcare, …). Ignored when "filters" is set.'
             },
             color: {
               type: 'string',
-              description: 'Highlight color for single-condition use or for AND multi-condition (all matching buildings share this color). Accepts CSS: "red", "#FF0000", "rgb(255,0,0)". Ignored when "filters" array items have their own color in OR mode.'
+              description: 'Highlight color for single-condition or AND mode (CSS name, hex, or rgb()). In OR mode prefer per-filter color.'
             },
             filters: {
               type: 'array',
-              description: 'Multi-condition filter list. Each element selects a group of buildings. Use combineMode to control AND vs OR logic.',
+              description: 'Multi-condition list. combineMode AND = all must match (one color); OR = each leg its own color.',
               items: {
                 type: 'object',
                 properties: {
                   filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] },
-                  filterValue: { type: 'string', description: 'For numeric types: single threshold (">=80", "50") or inclusive range ("20-30"). For class: exact class name.' },
-                  color: { type: 'string', description: 'Per-condition color used in OR mode. Optional in AND mode.' }
+                  filterValue: { type: 'string', description: 'Numeric threshold/range or class name (casual OK).' },
+                  color: { type: 'string', description: 'Per-leg color in OR mode.' }
                 },
                 required: ['filterType', 'filterValue']
               }
@@ -604,16 +605,16 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             combineMode: {
               type: 'string',
               enum: ['AND', 'OR'],
-              description: 'How to combine the "filters" array. "AND" (default): only buildings matching ALL conditions are highlighted in a single shared color. "OR": each condition highlights independently in its own per-condition color.'
+              description: 'AND (default): intersection, one shared color. OR: each filter leg highlighted in its own color. Must be uppercase.'
             },
             andFilters: {
               type: 'array',
-              description: 'Extra conditions ANDed onto every match from "filters" (or the single filter). Use for shared constraints like height/walkability/sunhours when coloring multiple classes differently with combineMode "OR".',
+              description: 'Extra AND constraints applied to every matching group (e.g. height when OR-coloring several classes).',
               items: {
                 type: 'object',
                 properties: {
                   filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] },
-                  filterValue: { type: 'string', description: 'Numeric threshold/range or exact class name.' }
+                  filterValue: { type: 'string', description: 'Numeric threshold/range or class name.' }
                 },
                 required: ['filterType', 'filterValue']
               }
@@ -674,7 +675,9 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         let newHeight;
 
         if (input.zoomOperation === 'in') {
-          newHeight = Math.max(input.height / factor, 1000); // Minimum 1km
+          // Relative zoom; floor at 100m (same as flyTo height minimum) so already-close
+          // views do not jump farther away via a 1km clamp.
+          newHeight = Math.max(input.height / factor, 100);
         } else if (input.zoomOperation === 'out') {
           newHeight = Math.min(input.height * factor, 50000000); // Maximum ~50,000km
         } else {
@@ -1074,13 +1077,16 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         return { error: true, message: 'Provide either filterType+filterValue or a non-empty filters array.' };
       }
 
-      // Validate every leg
+      // Validate every leg; normalize casual class names (schools → schools, education, research)
       for (const leg of resolvedFilters) {
         if (!VALID_FILTER_TYPES.includes(leg.filterType as FilterType)) {
           return { error: true, message: `Invalid filterType "${leg.filterType}". Valid values: ${VALID_FILTER_TYPES.join(', ')}.` };
         }
         if (!leg.filterValue) {
           return { error: true, message: `filterValue is required for filterType "${leg.filterType}".` };
+        }
+        if (leg.filterType === 'class') {
+          leg.filterValue = resolveBuildingClass(String(leg.filterValue));
         }
       }
 
@@ -1093,6 +1099,9 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         }
         if (!leg.filterValue) {
           return { error: true, message: `andFilters filterValue is required for filterType "${leg.filterType}".` };
+        }
+        if (leg.filterType === 'class') {
+          leg.filterValue = resolveBuildingClass(String(leg.filterValue));
         }
       }
 

@@ -164,24 +164,13 @@ export async function fetchPredictionReplayData(params: PredictionReplayParams):
     conditions.push(`cfgp.model = $${queryParams.length}`);
   }
 
-  // If a horizon limit is requested, restrict to the first N distinct timestamps
-  let limitClause = '';
-  if (hours && hours > 0) {
-    queryParams.push(hours);
-    limitClause = `
-      AND cfgp.timestamp IN (
-        SELECT DISTINCT timestamp FROM current_forecast_grid_points
-        WHERE model = cfgp.model
-        ORDER BY timestamp ASC
-        LIMIT $${queryParams.length}
-      )`;
-  }
-
+  // Fetch the full forecast horizon for the model; trim to "from now" in JS so
+  // hours=N means the next N hours, not the first N from the table start.
   const query = `
     SELECT cfgp.timestamp, cfgp.point_id, ${column} AS value, cfgp.model
     FROM current_forecast_grid_points cfgp
     JOIN grid_points gp ON gp.id = cfgp.point_id
-    WHERE ${conditions.join(' AND ')}${limitClause}
+    WHERE ${conditions.join(' AND ')}
     ORDER BY cfgp.timestamp, cfgp.point_id
   `;
 
@@ -196,9 +185,23 @@ export async function fetchPredictionReplayData(params: PredictionReplayParams):
     hourMap.get(hourKey)!.push(row.value);
   }
 
-  const hourEntries = Array.from(hourMap.entries())
+  let hourEntries = Array.from(hourMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([hour, values]) => ({ hour, values }));
+
+  // Start at the current hour (30 min grace), not the earliest stored forecast hour.
+  const nowMs = Date.now() - 30 * 60 * 1000;
+  const fromNow = hourEntries.filter((h) => Date.parse(h.hour) >= nowMs);
+  if (fromNow.length > 0) {
+    hourEntries = fromNow;
+  } else {
+    // Entire forecast is in the past — return empty so the handler can say so.
+    hourEntries = [];
+  }
+
+  if (hours && hours > 0 && hourEntries.length > hours) {
+    hourEntries = hourEntries.slice(0, hours);
+  }
 
   return {
     hours: hourEntries,

@@ -248,7 +248,13 @@ export async function findStationByName(stationName: string): Promise<StationInf
   const key = String(stationName || '').trim().toUpperCase();
   if (!key) return null;
   const stations = await fetchAllStations();
-  return stations.find((s) => String(s.name || '').toUpperCase() === key) || null;
+  const found = stations.find((s) => String(s.name || '').toUpperCase() === key) || null;
+  if (!found) return null;
+  return {
+    ...found,
+    latitude: Number(found.latitude),
+    longitude: Number(found.longitude)
+  };
 }
 
 export async function fetchStationsByOperator(operator: OperatorName): Promise<StationInfo[]> {
@@ -306,41 +312,46 @@ export function buildSensorFeatures(
   measurementsByStation: Map<string, StationMeasurement>,
   parameterAbbrev: string | null
 ): SensorGeoJsonFeature[] {
-  return stations
-    .filter((s) => typeof s.longitude === 'number' && typeof s.latitude === 'number')
-    .map((station) => {
-      const meas = measurementsByStation.get(station.name.toUpperCase())
-        || measurementsByStation.get(station.name);
-      const flat = flattenMeasurements(meas?.measurements);
-      const currentValue = pickMeasurementValue(
-        { ...flat, ...(meas?.measurements || {}) } as Record<string, unknown>,
-        parameterAbbrev
-      );
+  const features: SensorGeoJsonFeature[] = [];
+  for (const station of stations) {
+    const longitude = Number(station.longitude);
+    const latitude = Number(station.latitude);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) continue;
+    const meas = measurementsByStation.get(station.name.toUpperCase())
+      || measurementsByStation.get(station.name);
+    const flat = flattenMeasurements(meas?.measurements);
+    // Prefer max for nested avg/max/min payloads so "worst/latest" rankings match.
+    const currentValue = pickMeasurementValue(
+      { ...flat, ...(meas?.measurements || {}) } as Record<string, unknown>,
+      parameterAbbrev,
+      'max'
+    );
 
-      return {
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [station.longitude, station.latitude] as [number, number]
-        },
-        properties: {
-          object: station.name,
-          station_name: station.name,
-          operator: station.operator,
-          address: station.address || null,
-          stationType: station.stationType || null,
-          date_measured: meas?.date_measured || null,
-          currentValue,
-          ...flat
-        }
-      };
+    features.push({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [longitude, latitude]
+      },
+      properties: {
+        object: station.name,
+        station_name: station.name,
+        operator: station.operator,
+        address: station.address || null,
+        stationType: station.stationType || null,
+        date_measured: meas?.date_measured || null,
+        currentValue,
+        ...flat
+      }
     });
+  }
+  return features;
 }
 
 /**
  * Load live sensor pins for one or all operators from the Sofia Sensors API.
- * When `parameter` is set, stations without that reading are omitted and
- * each feature gets `currentValue` for pin coloring.
+ * When `parameter` is set, each feature gets `currentValue` for pin coloring
+ * (null if that station has no live reading — station is still included).
  */
 export async function loadSensorNetwork(options: {
   operator?: string | null;
@@ -385,10 +396,9 @@ export async function loadSensorNetwork(options: {
     measurementsByStation.set(m.station_name, m);
   }
 
-  let sensors = buildSensorFeatures(stations, measurementsByStation, parameter);
-  if (parameter) {
-    sensors = sensors.filter((f) => f.properties.currentValue != null);
-  }
+  // Keep stations even when the live reading is missing so pin counts stay stable
+  // across sessions; pins without a value simply have currentValue=null (no color).
+  const sensors = buildSensorFeatures(stations, measurementsByStation, parameter);
 
   return {
     operator,
@@ -425,7 +435,7 @@ export function sensorStationName(feature: SensorGeoJsonFeature): string {
 }
 
 export function sensorNumericValue(feature: SensorGeoJsonFeature, parameter: string): number | null {
-  return pickMeasurementValue(feature.properties as Record<string, unknown>, parameter);
+  return pickMeasurementValue(feature.properties as Record<string, unknown>, parameter, 'max');
 }
 
 export function listSensorValues(

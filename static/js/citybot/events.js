@@ -517,7 +517,8 @@ window.subscribeToWoTEvents = async function() {
                 summary: window.describeAppliedUiResult(payload, status)
               });
             } else {
-              // Queue style until Sofia tiles load; ack is sent when it is actually applied
+              // Queue style until Sofia tiles load; ack immediately as queued so the
+              // LLM does not append a false "browser did not confirm in time" note.
               window.pendingVisualizationStyle = {
                 styleDefinition: payload.styleDefinition,
                 styleName,
@@ -527,6 +528,11 @@ window.subscribeToWoTEvents = async function() {
                 appliedResult: payload.appliedResult || null
               };
               console.log('[CityBot] visualization style queued until tiles load:', styleName);
+              window.reportUiStatus({
+                ...ackBase,
+                status: 'queued',
+                summary: `Style queued until Sofia tiles load: ${styleName}`
+              });
             }
           } catch (error) {
             console.error(`❌ Error applying visualization style:`, error);
