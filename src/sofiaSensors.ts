@@ -472,6 +472,39 @@ export function matchesQualityLevel(value: number, parameter: string, qualityLev
   return value > thresholds[labelIndex - 1] && value <= thresholds[labelIndex];
 }
 
+/** CAQI band label for a numeric reading, or null if unknown parameter. */
+export function qualityLabelForValue(value: number, parameter: string): string | null {
+  const config = QUALITY_CONFIG[parameter];
+  if (!config || !Number.isFinite(value)) return null;
+  const { thresholds, labels } = config;
+  for (let i = 0; i < thresholds.length; i++) {
+    if (value <= thresholds[i]) return labels[i];
+  }
+  return labels[labels.length - 1];
+}
+
+/** True when the band is worse than Good (Moderate+). */
+export function isElevatedQuality(label: string | null | undefined): boolean {
+  if (!label) return false;
+  const l = label.toLowerCase().replace(/\s+/g, '');
+  return l !== 'good' && l !== 'normal' && l !== 'comfortable';
+}
+
+/** Live readings + CAQI bands for every quality-tracked pollutant on a station feature. */
+export function listStationRiskReadings(
+  properties: Record<string, unknown>
+): Array<{ parameter: string; value: number; quality: string }> {
+  const out: Array<{ parameter: string; value: number; quality: string }> = [];
+  for (const parameter of Object.keys(QUALITY_CONFIG)) {
+    const value = pickMeasurementValue(properties, parameter, 'max');
+    if (value == null) continue;
+    const quality = qualityLabelForValue(value, parameter);
+    if (!quality) continue;
+    out.push({ parameter, value, quality });
+  }
+  return out;
+}
+
 export function matchesValueExpression(value: number, filterValue: string): boolean {
   const match = String(filterValue).trim().match(/^(>=|<=|>|<|==|=)\s*(.+)$/);
   if (!match) return false;

@@ -135,28 +135,51 @@ function getDirectPlanningAnswer(conversation: any[]): string | null {
 }
 
 /**
- * Authoritative user-facing text from domain tool results.
- *
- * Convention (any Domain Thing action may return this):
- *   { success: true, userMessage: "..." }
- *
- * When present, the LLM service uses these as the final chat answer.
- * That keeps the training/runtime loop consistent: the model must call a
- * tool and the spoken reply comes from the tool result — so it does not
- * learn to skip tools and invent answers. Prefer the LAST tool's message;
- * concatenating every intermediate action sounds robotic.
+ * Domain tool userMessages from the CURRENT user turn only
+ * (tool results after the last user message — not older history).
  */
-function collectUserMessagesFromTools(conversation: any[]): string | null {
+function collectCurrentTurnUserMessages(conversation: any[]): string[] {
+  let lastUserIdx = -1;
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    if (conversation[i]?.role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
   const parts: string[] = [];
-  for (const msg of conversation) {
+  for (let i = lastUserIdx + 1; i < conversation.length; i++) {
+    const msg = conversation[i];
     if (msg?.role !== 'tool') continue;
     let parsed: any;
     try { parsed = JSON.parse(String(msg.content ?? '')); } catch { continue; }
     const text = typeof parsed?.userMessage === 'string' ? parsed.userMessage.trim() : '';
     if (text) parts.push(text);
   }
-  if (!parts.length) return null;
-  return parts[parts.length - 1];
+  return parts;
+}
+
+/**
+ * Pick the spoken final answer while keeping the tool-learning loop:
+ * - 1 tool userMessage  → use it (answer comes from the tool the model called)
+ * - 2+ tool userMessages → prefer the model's synthesis (it saw every tool
+ *   message; taking only the last one is wrong, e.g. 3 sensor readings → A10)
+ * - 0 → model text / later final call
+ */
+function resolveFinalAnswerFromTools(
+  conversation: any[]
+): { content: string | null; source: 'domain' | 'model' | null } {
+  const toolMessages = collectCurrentTurnUserMessages(conversation);
+  const modelAnswer = getDirectPlanningAnswer(conversation);
+
+  if (toolMessages.length === 1) {
+    return { content: toolMessages[0], source: 'domain' };
+  }
+  if (toolMessages.length > 1) {
+    if (modelAnswer) return { content: modelAnswer, source: 'model' };
+    return { content: toolMessages.join(' '), source: 'domain' };
+  }
+  if (modelAnswer) return { content: modelAnswer, source: 'model' };
+  return { content: null, source: null };
 }
 
 // Extend OpenAI params with Qwen‑specific options
@@ -1447,17 +1470,16 @@ async function main() {
         break;
       }
 
-      // Prefer domain userMessage so the spoken answer comes from the tool
-      // the model called (reinforces tool-use). Fall back to model text only
-      // when no tool returned a userMessage.
-      const domainUserMessage = collectUserMessagesFromTools(conversation);
-      let finalContent = domainUserMessage || getDirectPlanningAnswer(conversation);
+      // Single tool → domain userMessage (reinforces tool-use).
+      // Multiple tools → model synthesis over all tool userMessages.
+      const resolved = resolveFinalAnswerFromTools(conversation);
+      let finalContent = resolved.content;
       let finalReasoning: string | null = null;
 
-      if (domainUserMessage) {
+      if (resolved.source === 'domain') {
         console.log(`✅ [${requestId}] using domain userMessage as final answer`);
-      } else if (finalContent) {
-        console.log(`✅ [${requestId}] using direct planning answer (no tools / no userMessage)`);
+      } else if (resolved.source === 'model') {
+        console.log(`✅ [${requestId}] using model synthesis as final answer`);
       } else {
         const finalConversation = [
           ...conversation,
@@ -1913,14 +1935,11 @@ async function main() {
             console.warn(`⚠️ [${requestId}] hit max planning turns (${maxPlanningTurns}) without a final answer`);
           }
 
-          const domainUserMessage = collectUserMessagesFromTools(conversation);
-          const directPlanningAnswer = domainUserMessage
-            ? null
-            : getDirectPlanningAnswer(conversation);
+          const resolved = resolveFinalAnswerFromTools(conversation);
           let finalContent = '';
 
-          if (domainUserMessage) {
-            finalContent = domainUserMessage;
+          if (resolved.source === 'domain' && resolved.content) {
+            finalContent = resolved.content;
             console.log(`✅ [${requestId}] using domain userMessage as final answer`);
             emitLLMEvent(userId, 'conversationStream', {
               requestId,
@@ -1935,15 +1954,15 @@ async function main() {
               }
             });
             emitLLMEvent(userId, 'conversationStream', { requestId, token: finalContent, isFinal: false });
-          } else if (directPlanningAnswer) {
-            finalContent = stripLeakedToolMarker(directPlanningAnswer);
-            console.log(`✅ [${requestId}] using direct planning answer (no separate final call)`);
+          } else if (resolved.source === 'model' && resolved.content) {
+            finalContent = stripLeakedToolMarker(resolved.content);
+            console.log(`✅ [${requestId}] using model synthesis as final answer`);
             emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
               isFinal: false,
               metadata: {
-                planningUpdate: '✅ Planning complete, using direct answer...',
+                planningUpdate: '✅ Planning complete, using synthesized answer...',
                 planningComplete: true,
                 skippedFinalCall: true,
                 toolsUsedSoFar: [...toolsUsed]

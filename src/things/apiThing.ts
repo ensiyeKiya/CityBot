@@ -19,7 +19,10 @@ import {
   filterSensorsNearPoints,
   resolveBuildingClass,
   formatSensorNumber,
-  findStationByName
+  findStationByName,
+  qualityLabelForValue,
+  isElevatedQuality,
+  listStationRiskReadings
 } from '../sofiaSensors';
 
 const TITLE = 'api';
@@ -47,6 +50,142 @@ function friendlyBuildingClassLabel(cls: string): string {
     culture: 'cultural buildings'
   };
   return map[cls] || cls;
+}
+
+/** Spoken summary for sensors near places — single pollutant or multi-factor risk. */
+function sensorsNearUserMessage(options: {
+  placeLabel: string;
+  radiusMeters: number;
+  parameter: string | null;
+  nearby: Array<{ properties: Record<string, unknown> }>;
+}): string {
+  const { placeLabel, radiusMeters, parameter, nearby } = options;
+  if (!nearby.length) {
+    return `I couldn't find any sensors within about ${radiusMeters} m of ${placeLabel}.`;
+  }
+
+  // Single named pollutant — rank that factor only.
+  if (parameter) {
+    const unit = sensorUnit(parameter);
+    const withValues = nearby
+      .map((f) => {
+        const value = f.properties.currentValue;
+        const num = typeof value === 'number' ? value : null;
+        const quality = num != null ? qualityLabelForValue(num, parameter) : null;
+        return {
+          station: String(f.properties.object || 'Sensor'),
+          distanceM: Number(f.properties.nearestDistanceM) || 0,
+          value: num,
+          quality
+        };
+      })
+      .filter((r) => r.value != null) as Array<{
+        station: string;
+        distanceM: number;
+        value: number;
+        quality: string | null;
+      }>;
+
+    if (!withValues.length) {
+      return `Sensors near ${placeLabel} are on the map, but none currently report ${parameter}.`;
+    }
+
+    const byRisk = [...withValues].sort((a, b) => b.value - a.value);
+    const elevated = byRisk.filter((r) => isElevatedQuality(r.quality));
+    const top = byRisk[0];
+    const topText = `${top.station} at ${formatSensorNumber(top.value)}${unit ? ` ${unit}` : ''}`
+      + (top.quality ? ` (${top.quality})` : '')
+      + `, ${top.distanceM} m away`;
+
+    if (elevated.length === 0) {
+      return `I checked ${parameter} near ${placeLabel}: levels look Good right now. Highest is ${topText}.`;
+    }
+    const list = elevated
+      .slice(0, 3)
+      .map((r) => `${r.station} ${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''} (${r.quality}, ${r.distanceM} m)`)
+      .join('; ');
+    return `Near ${placeLabel}, ${elevated.length} sensor${elevated.length === 1 ? '' : 's'} show elevated ${parameter}: ${list}.`
+      + ` Highest overall nearby: ${topText}.`;
+  }
+
+  // No parameter — scan all quality-tracked pollutants; report whichever are elevated.
+  const elevatedFindings: Array<{
+    station: string;
+    distanceM: number;
+    parameter: string;
+    value: number;
+    quality: string;
+  }> = [];
+  for (const f of nearby) {
+    const station = String(f.properties.object || 'Sensor');
+    const distanceM = Number(f.properties.nearestDistanceM) || 0;
+    for (const reading of listStationRiskReadings(f.properties)) {
+      if (!isElevatedQuality(reading.quality)) continue;
+      elevatedFindings.push({
+        station,
+        distanceM,
+        parameter: reading.parameter,
+        value: reading.value,
+        quality: reading.quality
+      });
+    }
+  }
+
+  const nearest = nearby
+    .slice(0, 3)
+    .map((f) => `${String(f.properties.object || 'Sensor')} (${f.properties.nearestDistanceM} m)`)
+    .join(', ');
+
+  if (!elevatedFindings.length) {
+    return `Sensors near ${placeLabel} are on the map`
+      + (nearest ? ` (closest: ${nearest})` : '')
+      + `. Live air-quality factors look Good right now — no elevated pollutant bands nearby.`;
+  }
+
+  // Prefer worse bands, then higher values; keep a short spoken list.
+  const bandRank = (q: string) => {
+    const l = q.toLowerCase();
+    if (l.includes('hazard')) return 4;
+    if (l.includes('very')) return 3;
+    if (l.includes('poor')) return 2;
+    if (l.includes('moderate')) return 1;
+    return 0;
+  };
+  elevatedFindings.sort((a, b) =>
+    bandRank(b.quality) - bandRank(a.quality)
+    || b.value - a.value
+  );
+  const list = elevatedFindings
+    .slice(0, 5)
+    .map((r) => {
+      const unit = sensorUnit(r.parameter);
+      return `${r.station} ${r.parameter} ${formatSensorNumber(r.value)}${unit ? ` ${unit}` : ''} (${r.quality}, ${r.distanceM} m)`;
+    })
+    .join('; ');
+
+  return `Near ${placeLabel}, elevated readings: ${list}.`
+    + (elevatedFindings.length > 5 ? ` (+${elevatedFindings.length - 5} more).` : '');
+}
+
+function buildNearbySensorFacts(
+  nearby: Array<{ properties: Record<string, unknown> }>,
+  parameter: string | null
+) {
+  return nearby.slice(0, 20).map((f) => {
+    const readings = listStationRiskReadings(f.properties);
+    const elevated = readings.filter((r) => isElevatedQuality(r.quality));
+    const value = parameter != null && typeof f.properties.currentValue === 'number'
+      ? f.properties.currentValue
+      : null;
+    return {
+      station: f.properties.object,
+      distanceM: f.properties.nearestDistanceM,
+      value,
+      quality: value != null && parameter ? qualityLabelForValue(value, parameter) : null,
+      readings,
+      elevated
+    };
+  });
 }
 
 function sensorUnit(parameter: string | null | undefined): string {
@@ -336,22 +475,37 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'loadSensors', ['invokeaction'])
       },
       filterSensors: {
-        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue.\n- Worst / top N / numeric: filterType rank|value + parameter. "worst"/"highest" → 1 station; "top:5" → five. Prefer rank/value over quality bands unless the user names a band (hazardous/poor/…). Hazardous ≠ worst.\n- nearBuildings: ONLY for SENSORS near a building class (hospitals, schools, …). Optional parameter + radiusMeters. To also highlight those buildings, call filterBuildings with the same class. Do NOT use for "schools close to sensor A1/it" — that is findBuildingsNearSensor.\n- operator/name: hide by operator or station id (not building types).\nReplaces pins with the matching set.',
+        description: 'Filter Sofia sensor stations. ALWAYS pass filterType and filterValue.\n'
+          + '- Risky / unhealthy air near the SELECTED / this / clicked building: filterType=nearPoint, filterValue=selected, latitude+longitude from selectedBuilding. OMIT parameter so all live factors (PM2.5, PM10, NO2, O3, …) are scanned; the result lists whichever bands are elevated. Only pass parameter when the user names one. Do NOT ask which pollutant. Do NOT use nearBuildings for a single selected building.\n'
+          + '- Risky / unhealthy air near a building CLASS (schools, hospitals, …): filterType=nearBuildings + that class; OMIT parameter to scan all factors. Pass parameter only if the user names one.\n'
+          + '- Worst / top N / numeric: filterType rank|value + parameter. "worst"/"highest" → 1 station; "top:5" → five. Prefer rank/value over quality bands unless the user names a band (hazardous/poor/…). Hazardous ≠ worst.\n'
+          + '- nearBuildings: SENSORS near a building class. Optional parameter colors/filters by that reading; omit to evaluate multi-factor risk. Optional radiusMeters (default 800). To also highlight those buildings, call filterBuildings with the same class. Do NOT use for "schools close to sensor A1" — that is findBuildingsNearSensor.\n'
+          + '- quality: filterType=quality, filterValue=Poor|Moderate|Hazardous|… + parameter.\n'
+          + '- operator/name: hide by operator or station id.\n'
+          + 'Replaces pins with the matching set.',
         input: {
           type: 'object',
           properties: {
             filterType: {
               type: 'string',
-              enum: ['quality', 'value', 'rank', 'nearBuildings', 'operator', 'name'],
-              description: 'Required. quality/value/rank = evaluate readings; nearBuildings = sensors near buildings of a class; operator/name = pin metadata filters'
+              enum: ['quality', 'value', 'rank', 'nearBuildings', 'nearPoint', 'operator', 'name'],
+              description: 'Required. quality/value/rank = evaluate readings; nearBuildings = sensors near a building class; nearPoint = sensors near selectedBuilding lat/lon; operator/name = pin metadata'
             },
             filterValue: {
               type: 'string',
-              description: 'Required. quality level, numeric/rank expression, building class (for nearBuildings), operator name, or station id substring'
+              description: 'Required. quality level, numeric/rank expression, building class (nearBuildings), "selected" (nearPoint), operator name, or station id substring'
             },
             parameter: {
               type: 'string',
-              description: 'Pollutant/metric abbreviation (PM10, PM2.5, NO2, …). Required for quality/value/rank; optional for nearBuildings (colors/filters by that reading).'
+              description: 'Pollutant/metric (PM10, PM2.5, NO2, O3, …). Required for quality/value/rank. For nearBuildings/nearPoint: omit to scan all factors and report elevated ones; pass only when the user names a specific pollutant.'
+            },
+            latitude: {
+              type: 'number',
+              description: 'For nearPoint: latitude from selectedBuilding (any clicked building).'
+            },
+            longitude: {
+              type: 'number',
+              description: 'For nearPoint: longitude from selectedBuilding (any clicked building).'
             },
             operator: {
               type: 'string',
@@ -359,7 +513,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             },
             radiusMeters: {
               type: 'number',
-              description: 'For nearBuildings: distance threshold in meters (default 800).'
+              description: 'For nearBuildings/nearPoint: distance threshold in meters (default 800).'
             },
             limit: {
               type: 'number',
@@ -371,8 +525,6 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             _requestId: { oneOf: [{ type: 'string' }, { type: 'null' }] },
             _toolCallId: { oneOf: [{ type: 'string' }, { type: 'null' }] }
           }
-          // filterType/filterValue validated in the handler (not TD required) so a bad/empty
-          // model call returns a clear error instead of a WoT DataSchema exception.
         },
         output: { type: 'object' },
         forms: httpForm(TITLE, 'actions', 'filterSensors', ['invokeaction'])
@@ -797,6 +949,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
       if (filterType === 'nearBuildings') {
         const buildingClass = resolveBuildingClass(filterValue);
         const radiusMeters = Number(input.radiusMeters) > 0 ? Number(input.radiusMeters) : 800;
+        // Omit parameter to scan all pollutants; pass one only when the user names it.
         const loaded = await loadSensorNetwork({
           operator: input.operator,
           parameter
@@ -811,27 +964,13 @@ export async function exposeApiThing(WoT: any): Promise<any> {
 
         const nearby = filterSensorsNearPoints(loaded.sensors, buildingPoints, radiusMeters);
         const place = friendlyBuildingClassLabel(buildingClass);
-        const unit = sensorUnit(parameter);
-        const nearest = nearby
-          .slice(0, 3)
-          .map((f) => {
-            const name = String(f.properties.object || 'Sensor');
-            const dist = f.properties.nearestDistanceM;
-            const val = parameter != null ? f.properties.currentValue : null;
-            const valPart = typeof val === 'number'
-              ? `, ${parameter} ${formatSensorNumber(val)}${unit ? ` ${unit}` : ''}`
-              : '';
-            return `${name} (${dist} m${valPart})`;
-          })
-          .join(', ');
-
-        let userMessage: string;
-        if (!nearby.length) {
-          userMessage = `I couldn't find any sensors within about ${radiusMeters} m of ${place}.`;
-        } else {
-          userMessage = `Sensors near ${place} are now on the map.`
-            + (nearest ? ` Closest: ${nearest}.` : '');
-        }
+        const usedParameter = loaded.parameter;
+        const userMessage = sensorsNearUserMessage({
+          placeLabel: place,
+          radiusMeters,
+          parameter: usedParameter,
+          nearby
+        });
 
         await emitEvent('sensorsChanged', {
           action: 'load',
@@ -839,7 +978,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           requestId: input?._requestId ?? null,
           toolCallId: input?._toolCallId ?? null,
           operator: loaded.operator,
-          parameter,
+          parameter: usedParameter,
           sensors: nearby,
           sensorCount: nearby.length,
           show: true,
@@ -856,23 +995,93 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           userMessage,
           filterType,
           filterValue: buildingClass,
-          parameter,
+          parameter: usedParameter,
           facts: {
             buildingClass,
             buildingCount: buildingPoints.length,
             radiusMeters,
             checkedSensors: loaded.sensorCount,
             matchCount: nearby.length,
-            matches: nearby.slice(0, 20).map((f) => ({
-              station: f.properties.object,
-              distanceM: f.properties.nearestDistanceM,
-              value: parameter != null ? f.properties.currentValue ?? null : null
-            }))
+            parameter: usedParameter,
+            matches: buildNearbySensorFacts(nearby, usedParameter)
           },
           uiEffect: {
             needsAck: true,
             timeoutMs: 8000,
             summary: `Show ${nearby.length} sensors near ${buildingClass}`
+          }
+        };
+      }
+
+      // Sensors near one map point (selected building lat/lon).
+      if (filterType === 'nearPoint') {
+        const lat = Number(input.latitude);
+        const lon = Number(input.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return {
+            error: true,
+            message: 'nearPoint requires latitude and longitude from selectedBuilding.',
+            userMessage: 'I need the selected building location to check nearby sensors. Please click a building on the map first.'
+          };
+        }
+        const radiusMeters = Number(input.radiusMeters) > 0 ? Number(input.radiusMeters) : 800;
+        // Omit parameter to scan all pollutants; pass one only when the user names it.
+        const loaded = await loadSensorNetwork({
+          operator: input.operator,
+          parameter
+        });
+
+        const nearby = filterSensorsNearPoints(
+          loaded.sensors,
+          [{ latitude: lat, longitude: lon }],
+          radiusMeters
+        );
+
+        const usedParameter = loaded.parameter;
+        const userMessage = sensorsNearUserMessage({
+          placeLabel: 'the selected building',
+          radiusMeters,
+          parameter: usedParameter,
+          nearby
+        });
+
+        await emitEvent('sensorsChanged', {
+          action: 'load',
+          userId,
+          requestId: input?._requestId ?? null,
+          toolCallId: input?._toolCallId ?? null,
+          operator: loaded.operator,
+          parameter: usedParameter,
+          sensors: nearby,
+          sensorCount: nearby.length,
+          show: true,
+          filterType,
+          filterValue: 'selected',
+          radiusMeters,
+          appliedResult: { description: userMessage },
+          timestamp: new Date().toISOString()
+        });
+
+        return {
+          success: true,
+          message: userMessage,
+          userMessage,
+          filterType,
+          filterValue: 'selected',
+          parameter: usedParameter,
+          facts: {
+            latitude: lat,
+            longitude: lon,
+            radiusMeters,
+            checkedSensors: loaded.sensorCount,
+            matchCount: nearby.length,
+            parameter: usedParameter,
+            matches: buildNearbySensorFacts(nearby, usedParameter)
+          },
+          uiEffect: {
+            needsAck: true,
+            timeoutMs: 8000,
+            summary: `Show ${nearby.length} sensors near selected building`
           }
         };
       }
