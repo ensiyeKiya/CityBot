@@ -182,7 +182,7 @@ export async function fetchPredictionReplayData(params: PredictionReplayParams):
     if (!detectedModel) detectedModel = row.model;
     const hourKey = new Date(row.timestamp).toISOString();
     if (!hourMap.has(hourKey)) hourMap.set(hourKey, []);
-    hourMap.get(hourKey)!.push(row.value);
+    hourMap.get(hourKey)!.push(Math.max(0, row.value));
   }
 
   let hourEntries = Array.from(hourMap.entries())
