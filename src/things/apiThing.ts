@@ -1129,16 +1129,23 @@ export async function exposeApiThing(WoT: any): Promise<any> {
       if (!nearby.length) {
         userMessage = `I couldn't find any ${place} within about ${radiusMeters} m of sensor ${stationName}.`;
       } else {
-        const listed = nearby
-          .slice(0, 5)
-          .map((b) => `${b.label} (${b.distance_m} m)`)
-          .join(', ');
+        const closest = nearby[0];
+        const named = nearby.filter((b) => b.hasName).slice(0, 3);
+        const singular = place.replace(/s$/, '') || 'building';
         if (nearby.length === 1) {
-          userMessage = `The closest ${place.replace(/s$/, '') || 'building'} to sensor ${stationName} is ${listed}.`;
+          userMessage = closest.hasName
+            ? `The closest ${singular} to sensor ${stationName} is ${closest.label}, about ${closest.distance_m} m away.`
+            : `There is a ${singular} about ${closest.distance_m} m from sensor ${stationName}.`;
+        } else if (named.length > 0) {
+          const namedList = named
+            .map((b) => `${b.label} (${b.distance_m} m)`)
+            .join(', ');
+          const extra = nearby.length - named.length;
+          userMessage = `I found ${nearby.length} ${place} near sensor ${stationName}, including ${namedList}`
+            + (extra > 0 ? ` and ${extra} more` : '')
+            + `. The closest is ${closest.distance_m} m away.`;
         } else {
-          userMessage = `${place.charAt(0).toUpperCase() + place.slice(1)} closest to sensor ${stationName}: ${listed}`
-            + (nearby.length > 5 ? '…' : '')
-            + '.';
+          userMessage = `I found ${nearby.length} ${place} within about ${radiusMeters} m of sensor ${stationName}. The closest is ${closest.distance_m} m away.`;
         }
       }
 

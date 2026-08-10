@@ -140,10 +140,11 @@ function getDirectPlanningAnswer(conversation: any[]): string | null {
  * Convention (any Domain Thing action may return this):
  *   { success: true, userMessage: "..." }
  *
- * When present, the LLM service uses these strings as the final answer instead
- * of asking the model to re-narrate outcomes it already computed incorrectly.
- * This is the correct ownership: the action that knows the facts writes the
- * user message; the planner only chooses which tools to call.
+ * When present, the LLM service uses these as the final chat answer.
+ * That keeps the training/runtime loop consistent: the model must call a
+ * tool and the spoken reply comes from the tool result — so it does not
+ * learn to skip tools and invent answers. Prefer the LAST tool's message;
+ * concatenating every intermediate action sounds robotic.
  */
 function collectUserMessagesFromTools(conversation: any[]): string | null {
   const parts: string[] = [];
@@ -151,12 +152,11 @@ function collectUserMessagesFromTools(conversation: any[]): string | null {
     if (msg?.role !== 'tool') continue;
     let parsed: any;
     try { parsed = JSON.parse(String(msg.content ?? '')); } catch { continue; }
-    // Prefer domain-authored userMessage even on error (avoids the model inventing text).
     const text = typeof parsed?.userMessage === 'string' ? parsed.userMessage.trim() : '';
     if (text) parts.push(text);
   }
   if (!parts.length) return null;
-  return parts.join(' ');
+  return parts[parts.length - 1];
 }
 
 // Extend OpenAI params with Qwen‑specific options
@@ -1447,13 +1447,15 @@ async function main() {
         break;
       }
 
-      // Prefer authoritative userMessage from domain tools over model narration.
+      // Prefer domain userMessage so the spoken answer comes from the tool
+      // the model called (reinforces tool-use). Fall back to model text only
+      // when no tool returned a userMessage.
       const domainUserMessage = collectUserMessagesFromTools(conversation);
       let finalContent = domainUserMessage || getDirectPlanningAnswer(conversation);
       let finalReasoning: string | null = null;
 
       if (domainUserMessage) {
-        console.log(`✅ [${requestId}] using domain userMessage(s) as final answer`);
+        console.log(`✅ [${requestId}] using domain userMessage as final answer`);
       } else if (finalContent) {
         console.log(`✅ [${requestId}] using direct planning answer (no tools / no userMessage)`);
       } else {
@@ -1461,7 +1463,7 @@ async function main() {
           ...conversation,
           {
             role: 'system',
-            content: 'Now provide your final answer to the user. Do not use any tools. Summarize only what the tool results report — do not invent map outcomes.'
+            content: 'Now provide your final answer to the user. Do not use any tools. Speak naturally in 1–3 short sentences. Use only facts from the tool results — do not invent map outcomes or building names.'
           }
         ];
 
@@ -1919,7 +1921,7 @@ async function main() {
 
           if (domainUserMessage) {
             finalContent = domainUserMessage;
-            console.log(`✅ [${requestId}] using domain userMessage(s) as final answer`);
+            console.log(`✅ [${requestId}] using domain userMessage as final answer`);
             emitLLMEvent(userId, 'conversationStream', {
               requestId,
               token: '',
@@ -1969,7 +1971,7 @@ async function main() {
                 ...conversation,
                 {
                   role: 'system',
-                  content: 'Now provide your final answer to the user. Do not use any tools. Summarize only what the tool results report — do not invent map outcomes. Offer helpful follow-up suggestions.'
+                  content: 'Now provide your final answer to the user. Do not use any tools. Speak naturally in 1–3 short sentences. Use only facts from the tool results — do not invent map outcomes or building names. Offer a brief helpful follow-up if useful.'
                 }
               ];
 

@@ -446,6 +446,7 @@ export async function fetchBuildingsNearPoint(options: {
   osm_name: string | null;
   osm_name_en: string | null;
   label: string;
+  hasName: boolean;
 }>> {
   const client = getDatabaseClient();
   const radius = Number(options.radiusMeters) > 0 ? Number(options.radiusMeters) : 800;
@@ -482,6 +483,8 @@ export async function fetchBuildingsNearPoint(options: {
          wiki_title_bg,
          osm_name,
          osm_name_en,
+         addr,
+         cad_descr,
          ${distanceExpr} AS distance_m
        FROM buildings
        WHERE latitude IS NOT NULL
@@ -496,11 +499,12 @@ export async function fetchBuildingsNearPoint(options: {
     );
 
     return result.rows.map((row: any) => {
-      const label =
-        (row.wiki_title_bg && String(row.wiki_title_bg).trim())
-        || (row.osm_name_en && String(row.osm_name_en).trim())
-        || (row.osm_name && String(row.osm_name).trim())
-        || null;
+      const wiki = row.wiki_title_bg && String(row.wiki_title_bg).trim();
+      const osmEn = row.osm_name_en && String(row.osm_name_en).trim();
+      const osm = row.osm_name && String(row.osm_name).trim();
+      const addr = row.addr && String(row.addr).trim();
+      const cad = row.cad_descr && String(row.cad_descr).trim();
+      const label = wiki || osmEn || osm || addr || cad || null;
       return {
         gml_id: row.gml_id ?? null,
         latitude: Number(row.latitude),
@@ -510,7 +514,8 @@ export async function fetchBuildingsNearPoint(options: {
         wiki_title_bg: row.wiki_title_bg ?? null,
         osm_name: row.osm_name ?? null,
         osm_name_en: row.osm_name_en ?? null,
-        label: label || 'a nearby building'
+        label: label || `${Math.round(Number(row.distance_m))} m away`,
+        hasName: !!(wiki || osmEn || osm || addr || cad)
       };
     });
   } catch (error) {
