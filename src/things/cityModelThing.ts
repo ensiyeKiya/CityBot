@@ -9,7 +9,7 @@
 
 import { STYLE_DEFINITIONS, STYLE_NAMES, VALID_STYLES } from '../visualizationStyles';
 import { generateDynamicStyle, getDatabaseStatistics, BUILDING_CLASS_COLORS } from '../buildingVisualizationHelpers';
-import { countBuildingsMatching } from '../database';
+import { countBuildingsMatching, queryBuildingsMatching } from '../database';
 import { resolveBuildingClass } from '../sofiaSensors';
 import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
 
@@ -556,14 +556,14 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'removeTiles', ['invokeaction'])
       },
       setVisualizationStyle: {
-        description: 'Applies a color-coded visualization style to the 3D city model. Available styles: walkability (pedestrian accessibility), height (building height), uhi4/uhi9 (urban heat island at 4pm/9pm), energyltb/energyutb (energy consumption lower/upper bounds), class (building type classification), none (remove styling). Dynamically generates color schemes from real building data. Load Sofia 3D tiles first if not already loaded.',
+        description: 'Colors ALL buildings on the map by one metric. Changes map appearance. Styles: walkability, height, uhi4/uhi9, energyltb/energyutb, class, none. Load Sofia tiles first if needed. For factual questions about a subset (counts, heights, averages) use queryBuildings — it does not change the map.',
         input: {
           type: 'object',
           properties: {
             style: {
               type: 'string',
               enum: ['none', 'walkability', 'height', 'uhi4', 'uhi9', 'energyltb', 'energyutb', 'class'],
-              description: 'Visualization style to apply: none (default), walkability (pedestrian accessibility with dynamic thresholds), height (building height with data-driven color ranges), uhi4 (urban heat at 4pm), uhi9 (urban heat at 9pm), energyltb (energy lower bound with intelligent ranges), energyutb (energy upper bound with intelligent ranges), class (building classification)'
+              description: 'Visualization style to apply'
             }
           },
           required: ['style']
@@ -571,8 +571,53 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         output: { type: 'object' },
         forms: httpForm(TITLE, 'actions', 'setVisualizationStyle', ['invokeaction'])
       },
+      queryBuildings: {
+        description: 'Answers factual questions about buildings without changing the map. Returns count and stats (height min/avg/max, energy avg, walkability avg) for matching buildings.\n'
+          + 'Use for "how tall / how many / what is the average …". Same filter language as filterBuildings.\n'
+          + 'filterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours.\n'
+          + 'NUMERIC filterValue must be a numeric expression (">=58", "<30", "20-30"). Intent → value: energy LTB inefficient ">=58"; height tall ">=50"; walkability low "<30"; uhi9 hot ">=26".\n'
+          + 'AND multiple criteria with filters=[...]. Class: casual names OK (schools, hospitals, …).',
+        input: {
+          type: 'object',
+          properties: {
+            filterType: {
+              type: 'string',
+              enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'],
+              description: 'Single-condition filter type. Ignored when filters array is provided.'
+            },
+            filterValue: {
+              type: 'string',
+              description: 'Single-condition value. Numeric expression or class name.'
+            },
+            filters: {
+              type: 'array',
+              description: 'AND list of conditions. All must match.',
+              items: {
+                type: 'object',
+                properties: {
+                  filterType: { type: 'string', enum: ['class', 'walkability', 'height', 'energy', 'energy LTB', 'energy UTB', 'uhi4', 'uhi9', 'sunhours'] },
+                  filterValue: { type: 'string' }
+                },
+                required: ['filterType', 'filterValue']
+              }
+            }
+          }
+        },
+        output: { type: 'object' },
+        forms: httpForm(TITLE, 'actions', 'queryBuildings', ['invokeaction'])
+      },
       filterBuildings: {
-        description: 'Highlights buildings that match one or more criteria (non-matching buildings turn white). Load Sofia tiles first if needed.\n\nUSAGE MODES:\n- SINGLE condition: filterType + filterValue + optional color.\n- AND (all criteria, one color): filters=[...] combineMode "AND" (default). Example — tall hospitals: filters=[{filterType:"class",filterValue:"healthcare"},{filterType:"height",filterValue:">=30"}].\n- OR (each group its own color): combineMode "OR". Example — hospitals blue + schools red: filters=[{filterType:"class",filterValue:"healthcare",color:"blue"},{filterType:"class",filterValue:"schools",color:"red"}].\n- Adding to an existing OR selection: call again with combineMode "OR" and include all desired classes.\n- Shared AND across every OR group: andFilters (e.g. height>=30 on all classes).\n- Reset / clear: filterType "none".\n\nfilterType options: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours | none.\nClass: casual names OK (schools, hospitals, residential, …) — server maps to DB values.\n\nNUMERIC filterValue MUST always be a numeric expression — ">=58", "<30", "20-30". Never use label words as filterValue. Reference values by intent:\n- walkability: high ">=80", low "<30"\n- height: tall ">=50", short "<10"\n- energy LTB: inefficient ">=58", efficient "<=48"\n- energy UTB: inefficient ">=750", efficient "<=300"\n- uhi4: hot ">=28"\n- uhi9: hot ">=26"\n- sunhours: high ">=6", low "<4"\n\nIMPORTANT: filterBuildings and setVisualizationStyle both control building colours and override each other. Use filterBuildings to highlight a SUBSET of buildings; use setVisualizationStyle to colour ALL buildings by one metric. Calling both in sequence means only the second one is visible.',
+        description: 'Highlights matching buildings on the map (others white). Changes map appearance — use when the user asks to show/highlight buildings. For factual answers without map changes, use queryBuildings.\n\n'
+          + 'USAGE MODES:\n'
+          + '- SINGLE: filterType + filterValue + optional color.\n'
+          + '- AND: filters=[...] combineMode "AND" (default). Example tall hospitals: filters=[{filterType:"class",filterValue:"healthcare"},{filterType:"height",filterValue:">=30"}].\n'
+          + '- OR: combineMode "OR" with per-leg colors.\n'
+          + '- Shared AND on every OR group: andFilters.\n'
+          + '- Reset: filterType "none".\n\n'
+          + 'filterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours | none.\n'
+          + 'Class: casual names OK (schools, hospitals, residential, …).\n'
+          + 'NUMERIC filterValue MUST be a numeric expression — ">=58", "<30", "20-30". Never put label words in filterValue.\n'
+          + 'Intent → value: walkability high ">=80" low "<30"; height tall ">=50" short "<10"; energy LTB inefficient ">=58" efficient "<=48"; energy UTB inefficient ">=750" efficient "<=300"; uhi4 hot ">=28"; uhi9 hot ">=26"; sunhours high ">=6" low "<4".',
         input: {
           type: 'object',
           properties: {
@@ -1011,6 +1056,86 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
     } catch (error) {
       console.error("Error in setVisualizationStyle handler:", error);
       return { error: true, message: "Failed to set visualization style" };
+    } finally {
+      span.end();
+    }
+  });
+
+  thing.setActionHandler('queryBuildings', async (params: any) => {
+    const span = tracer.startSpan('queryBuildings');
+    try {
+      let input: any;
+      if (params && typeof params.value === 'function') {
+        input = await params.value();
+      } else {
+        input = params || {};
+      }
+
+      type FilterLeg = { filterType: string; filterValue: string };
+      let resolvedFilters: FilterLeg[];
+      if (Array.isArray(input.filters) && input.filters.length > 0) {
+        resolvedFilters = input.filters;
+      } else if (input.filterType && input.filterValue) {
+        resolvedFilters = [{ filterType: input.filterType, filterValue: input.filterValue }];
+      } else {
+        return { error: true, message: 'Provide either filterType+filterValue or a non-empty filters array.' };
+      }
+
+      for (const leg of resolvedFilters) {
+        if (!VALID_FILTER_TYPES.includes(leg.filterType as FilterType)) {
+          return { error: true, message: `Invalid filterType "${leg.filterType}". Valid values: ${VALID_FILTER_TYPES.join(', ')}.` };
+        }
+        if (!leg.filterValue) {
+          return { error: true, message: `filterValue is required for filterType "${leg.filterType}".` };
+        }
+        if (leg.filterType === 'class') {
+          leg.filterValue = resolveBuildingClass(String(leg.filterValue));
+        }
+      }
+
+      const stats = await queryBuildingsMatching(resolvedFilters);
+      if (!stats) {
+        return { error: true, message: 'Failed to query building statistics.' };
+      }
+
+      const label = resolvedFilters
+        .map((l) => (l.filterType === 'class' ? l.filterValue : `${l.filterType} ${l.filterValue}`))
+        .join(' AND ');
+
+      let userMessage: string;
+      if (stats.count === 0) {
+        userMessage = `I couldn't find any buildings matching ${label}.`;
+      } else if (stats.heightAvg != null) {
+        userMessage =
+          `For buildings matching ${label}: ${stats.count.toLocaleString()} buildings, `
+          + `height avg ${stats.heightAvg} m`
+          + (stats.heightMin != null && stats.heightMax != null
+            ? ` (range ${stats.heightMin}–${stats.heightMax} m)`
+            : '')
+          + '.';
+      } else {
+        userMessage = `Found ${stats.count.toLocaleString()} buildings matching ${label}.`;
+      }
+
+      return {
+        success: true,
+        message: userMessage,
+        userMessage,
+        facts: {
+          label,
+          filters: resolvedFilters,
+          count: stats.count,
+          heightMin: stats.heightMin,
+          heightAvg: stats.heightAvg,
+          heightMax: stats.heightMax,
+          energyLtbAvg: stats.energyLtbAvg,
+          walkabilityAvg: stats.walkabilityAvg
+        }
+      };
+    } catch (error) {
+      console.error('Error in queryBuildings handler:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: true, message: `Failed to query buildings: ${errorMessage}` };
     } finally {
       span.end();
     }

@@ -454,7 +454,7 @@ async function main() {
 
   /** Canonical action list per Domain Thing — used to verify TD ↔ client alignment at startup. */
   const EXPECTED_DOMAIN_ACTIONS: Record<DomainThingTitle, readonly string[]> = {
-    citymodel: ['flyTo', 'setCameraView', 'setVisualizationStyle', 'filterBuildings', 'loadTiles', 'removeTiles'],
+    citymodel: ['flyTo', 'setCameraView', 'setVisualizationStyle', 'filterBuildings', 'queryBuildings', 'loadTiles', 'removeTiles'],
     airquality: ['replayPollution', 'replayPrediction', 'clearPollutionClouds'],
     api: [
       'getWeather',

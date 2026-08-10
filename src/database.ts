@@ -217,6 +217,64 @@ export async function countBuildingsMatching(conditions: BuildingFilterCondition
 }
 
 /**
+ * Aggregate stats for buildings matching ALL conditions (AND).
+ * Used by queryBuildings — answers without changing the map.
+ */
+export async function queryBuildingsMatching(conditions: BuildingFilterCondition[]): Promise<{
+  count: number;
+  heightMin: number | null;
+  heightAvg: number | null;
+  heightMax: number | null;
+  energyLtbAvg: number | null;
+  walkabilityAvg: number | null;
+} | null> {
+  if (!conditions.length) {
+    return {
+      count: 0,
+      heightMin: null,
+      heightAvg: null,
+      heightMax: null,
+      energyLtbAvg: null,
+      walkabilityAvg: null
+    };
+  }
+  const client = getDatabaseClient();
+  const where: string[] = [];
+  const params: any[] = [];
+  try {
+    for (const c of conditions) {
+      appendBuildingFilterCondition(where, params, c.filterType, c.filterValue);
+    }
+    const result = await client.query(
+      `SELECT
+         COUNT(*)::int AS count,
+         MIN(citygml_measured_height) AS height_min,
+         AVG(citygml_measured_height) AS height_avg,
+         MAX(citygml_measured_height) AS height_max,
+         AVG(energy_ti_ltb) AS energy_ltb_avg,
+         AVG(walk_access_index) AS walkability_avg
+       FROM buildings
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    const row = result.rows[0];
+    const round1 = (v: unknown) =>
+      v != null && Number.isFinite(Number(v)) ? Math.round(Number(v) * 10) / 10 : null;
+    return {
+      count: row?.count ?? 0,
+      heightMin: round1(row?.height_min),
+      heightAvg: round1(row?.height_avg),
+      heightMax: round1(row?.height_max),
+      energyLtbAvg: round1(row?.energy_ltb_avg),
+      walkabilityAvg: round1(row?.walkability_avg)
+    };
+  } catch (error) {
+    console.error('Error querying buildings for filter:', error, conditions);
+    return null;
+  }
+}
+
+/**
  * Get building statistics for visualization styles
  */
 export async function getBuildingStatistics(): Promise<any> {
