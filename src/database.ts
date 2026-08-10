@@ -428,6 +428,7 @@ export async function fetchBuildingCoordinatesByClass(
 /**
  * Fetch buildings near a WGS84 point, optionally limited to one citygml class.
  * Ordered by distance ascending.
+ * Uses haversine on lat/lon columns (no PostGIS geography type required).
  */
 export async function fetchBuildingsNearPoint(options: {
   latitude: number;
@@ -452,6 +453,7 @@ export async function fetchBuildingsNearPoint(options: {
   const classDescription = options.classDescription ? String(options.classDescription) : null;
 
   try {
+    // $1=lon, $2=lat, $3=radiusMeters
     const params: any[] = [options.longitude, options.latitude, radius];
     let classClause = '';
     if (classDescription) {
@@ -460,7 +462,17 @@ export async function fetchBuildingsNearPoint(options: {
     }
     params.push(limit);
 
-    // Explicit WGS84 geography — bare ST_Point::geography is unreliable across PostGIS versions.
+    // Haversine distance in meters (WGS84). Bounding-box prefilter keeps the scan small.
+    const distanceExpr = `
+      (6371000 * 2 * ASIN(SQRT(
+        POWER(SIN(RADIANS(latitude - $2) / 2), 2)
+        + COS(RADIANS($2)) * COS(RADIANS(latitude))
+          * POWER(SIN(RADIANS(longitude - $1) / 2), 2)
+      )))`;
+    // ~1 degree latitude ≈ 111 km; longitude shrinks by cos(lat)
+    const latPad = radius / 111000;
+    const lonPad = radius / (111000 * Math.max(0.2, Math.cos((options.latitude * Math.PI) / 180)));
+
     const result = await client.query(
       `SELECT
          gml_id,
@@ -470,18 +482,13 @@ export async function fetchBuildingsNearPoint(options: {
          wiki_title_bg,
          osm_name,
          osm_name_en,
-         ST_Distance(
-           ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
-           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
-         ) AS distance_m
+         ${distanceExpr} AS distance_m
        FROM buildings
        WHERE latitude IS NOT NULL
          AND longitude IS NOT NULL
-         AND ST_DWithin(
-           ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
-           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
-           $3
-         )
+         AND latitude BETWEEN $2 - ${latPad} AND $2 + ${latPad}
+         AND longitude BETWEEN $1 - ${lonPad} AND $1 + ${lonPad}
+         AND ${distanceExpr} <= $3
          ${classClause}
        ORDER BY distance_m ASC
        LIMIT $${params.length}`,

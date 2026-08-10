@@ -350,8 +350,9 @@ export function buildSensorFeatures(
 
 /**
  * Load live sensor pins for one or all operators from the Sofia Sensors API.
- * When `parameter` is set, each feature gets `currentValue` for pin coloring
- * (null if that station has no live reading — station is still included).
+ * When `parameter` is set, only stations with a live reading for that parameter
+ * are returned (colored by `currentValue`). Without a parameter, all stations
+ * are returned.
  */
 export async function loadSensorNetwork(options: {
   operator?: string | null;
@@ -396,9 +397,11 @@ export async function loadSensorNetwork(options: {
     measurementsByStation.set(m.station_name, m);
   }
 
-  // Keep stations even when the live reading is missing so pin counts stay stable
-  // across sessions; pins without a value simply have currentValue=null (no color).
-  const sensors = buildSensorFeatures(stations, measurementsByStation, parameter);
+  let sensors = buildSensorFeatures(stations, measurementsByStation, parameter);
+  // "Show PM2.5 sensors" must hide stations that do not report that parameter.
+  if (parameter) {
+    sensors = sensors.filter((f) => typeof f.properties.currentValue === 'number');
+  }
 
   return {
     operator,

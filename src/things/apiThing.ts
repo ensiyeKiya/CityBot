@@ -317,7 +317,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         forms: httpForm(TITLE, 'actions', 'reverseGeocode', ['invokeaction'])
       },
       loadSensors: {
-        description: `Loads Sofia environmental sensor stations as colored map pins (GATE CityLab). Use for "show sensors", "show PM10 sensors". Pass parameter (PM10, PM2.5, NO2, …) to color by that reading. Do NOT pass operator unless the user names one (GATE/City Lab, Sofia municipality/Airthings, ExEA) — omitting operator loads ALL operators (~30+ PM10 stations). Stations without a live reading still appear (uncolored).`,
+        description: `Loads Sofia environmental sensor stations as colored map pins (GATE CityLab). Use for "show sensors", "show PM2.5 sensors", "show PM10 sensors". Pass parameter (PM10, PM2.5, NO2, …) to show ONLY stations that currently report that reading (colored by value). Without parameter, loads all stations. Do NOT pass operator unless the user names one (GATE/City Lab, Sofia municipality/Airthings, ExEA). For worst/top-N/quality bands use filterSensors instead.`,
         input: {
           type: 'object',
           properties: {
@@ -327,7 +327,7 @@ export async function exposeApiThing(WoT: any): Promise<any> {
             },
             parameter: {
               type: 'string',
-              description: 'Optional environmental parameter abbreviation (PM10, PM2.5, NO2, O3, CO, CO2, SO2, T, RH, …) or full name.'
+              description: 'Optional environmental parameter abbreviation (PM10, PM2.5, NO2, O3, CO, CO2, SO2, T, RH, …) or full name. When set, only stations with a live reading for that parameter are shown.'
             },
             userId: { type: 'string' }
           }
@@ -645,8 +645,8 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           : `I couldn't find any environmental sensor stations to show.`;
       } else if (loaded.parameter) {
         userMessage = loaded.operator
-          ? `Sensor stations from ${loaded.operator}, colored by ${loaded.parameter}, are now on the map.`
-          : `Sensor stations colored by ${loaded.parameter} are now on the map.`;
+          ? `${loaded.sensorCount} ${loaded.operator} stations with live ${loaded.parameter} are now on the map.`
+          : `${loaded.sensorCount} stations with live ${loaded.parameter} are now on the map.`;
       } else {
         userMessage = loaded.operator
           ? `Sensor stations from ${loaded.operator} are now on the map.`
