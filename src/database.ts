@@ -154,11 +154,6 @@ function sqlColumnForFilterType(filterType: string): string | null {
   }
 }
 
-function defaultOperatorForFilterType(filterType: string): string {
-  if (filterType === 'energy' || filterType === 'energy LTB') return '<=';
-  return '>=';
-}
-
 function appendBuildingFilterCondition(
   where: string[],
   params: any[],
@@ -184,12 +179,25 @@ function appendBuildingFilterCondition(
 
   const singleMatch = v.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
   if (!singleMatch) throw new Error(`Invalid numeric filter value for counting: ${filterValue}`);
-  const op = singleMatch[1] || defaultOperatorForFilterType(filterType);
-  if (!['>', '>=', '<', '<=', '=', '==', '!='].includes(op)) {
+  const rawOp = singleMatch[1] || '=';
+  const op = rawOp === '==' ? '=' : rawOp;
+  if (!['>', '>=', '<', '<=', '=', '!='].includes(op)) {
     throw new Error(`Invalid operator in filter value: ${op}`);
   }
-  params.push(parseFloat(singleMatch[2]));
-  where.push(`${col} ${op === '==' ? '=' : op} $${params.length}`);
+  const num = parseFloat(singleMatch[2]);
+  // Match Cesium: bare/"=" means about exactly N (±0.5), not a threshold default.
+  if (op === '=') {
+    params.push(num - 0.5, num + 0.5);
+    where.push(`${col} >= $${params.length - 1} AND ${col} < $${params.length}`);
+    return;
+  }
+  if (op === '!=') {
+    params.push(num - 0.5, num + 0.5);
+    where.push(`(${col} < $${params.length - 1} OR ${col} >= $${params.length})`);
+    return;
+  }
+  params.push(num);
+  where.push(`${col} ${op} $${params.length}`);
 }
 
 /**

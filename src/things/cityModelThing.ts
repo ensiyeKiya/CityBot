@@ -67,12 +67,11 @@ function toCesiumColorExpr(value: string): string {
 function parseNumericFilter(
   prop: string,          // Cesium feature property expression, e.g. "walk_access_index"
   filterValue: string,
-  defaultOp = '>='
+  _defaultOp = '>='      // unused — bare numbers mean equality; thresholds need an explicit operator
 ): { expr: string } | { error: string } {
   const v = filterValue.trim();
 
-  // Range: "20-30" or "20 - 30"  (leading operator would be ambiguous, so
-  // only match when the first char is a digit or a decimal point)
+  // Range: "20-30" or "20 - 30"
   const rangeMatch = v.match(/^(\d+\.?\d*)\s*-\s*(\d+\.?\d*)$/);
   if (rangeMatch) {
     const lo = rangeMatch[1];
@@ -83,13 +82,50 @@ function parseNumericFilter(
     return { expr: `Number(\${feature['${prop}']}) >= ${lo} && Number(\${feature['${prop}']}) <= ${hi}` };
   }
 
-  // Single threshold: optional operator + number
+  // Single value: operator + number, or bare number (= equality to nearest unit)
   const singleMatch = v.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
   if (singleMatch) {
-    return { expr: `Number(\${feature['${prop}']}) ${singleMatch[1] || defaultOp} ${singleMatch[2]}` };
+    const rawOp = singleMatch[1] || '==';
+    const num = singleMatch[2];
+    const op = rawOp === '=' ? '==' : rawOp;
+    if (!['>', '>=', '<', '<=', '==', '!='].includes(op)) {
+      return { error: `Invalid operator "${rawOp}" in filter value "${filterValue}".` };
+    }
+    // Exact equality on float metrics is unreliable — match nearest unit (e.g. 4 → [3.5, 4.5)).
+    if (op === '==') {
+      const n = parseFloat(num);
+      const lo = n - 0.5;
+      const hi = n + 0.5;
+      return {
+        expr: `Number(\${feature['${prop}']}) >= ${lo} && Number(\${feature['${prop}']}) < ${hi}`
+      };
+    }
+    if (op === '!=') {
+      const n = parseFloat(num);
+      const lo = n - 0.5;
+      const hi = n + 0.5;
+      return {
+        expr: `(Number(\${feature['${prop}']}) < ${lo} || Number(\${feature['${prop}']}) >= ${hi})`
+      };
+    }
+    return { expr: `Number(\${feature['${prop}']}) ${op} ${num}` };
   }
 
-  return { error: `Invalid numeric filter value "${filterValue}". Use e.g. ">=80", "50", or "20-30".` };
+  return {
+    error: `Invalid numeric filter value "${filterValue}". Use an explicit comparison: "<=4" (up to / not more than), ">=50" (at least), "4" or "=4" (about exactly), or "20-30" (range).`
+  };
+}
+
+/** Resolve a numeric filterValue to the operator+number actually applied (for messages/facts). */
+function resolveNumericFilterLabel(filterValue: string): string {
+  const v = String(filterValue).trim();
+  const rangeMatch = v.match(/^(\d+\.?\d*)\s*-\s*(\d+\.?\d*)$/);
+  if (rangeMatch) return `${rangeMatch[1]}-${rangeMatch[2]}`;
+  const singleMatch = v.match(/^([><=!]+)?\s*(\d+\.?\d*)$/);
+  if (!singleMatch) return v;
+  const op = singleMatch[1] || '=';
+  const normalizedOp = op === '==' ? '=' : op;
+  return `${normalizedOp}${singleMatch[2]}`;
 }
 
 /**
@@ -575,7 +611,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         description: 'Answers factual questions about buildings without changing the map. Returns count and stats (height min/avg/max, energy avg, walkability avg) for matching buildings.\n'
           + 'Use for "how tall / how many / what is the average …". Same filter language as filterBuildings.\n'
           + 'filterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours.\n'
-          + 'NUMERIC filterValue must be a numeric expression (">=58", "<30", "20-30"). Intent → value: energy LTB inefficient ">=58"; height tall ">=50"; walkability low "<30"; uhi9 hot ">=26".\n'
+          + 'NUMERIC filterValue: "<=4" (up to / not more than), ">=50" (at least), "4" or "=4" (about exactly), "20-30" (range). Intent → value: energy LTB inefficient ">=58"; height tall ">=50" up-to "<=4"; walkability low "<30"; uhi9 hot ">=26".\n'
           + 'AND multiple criteria with filters=[...]. Class: casual names OK (schools, hospitals, …).',
         input: {
           type: 'object',
@@ -616,8 +652,8 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           + '- Reset: filterType "none".\n\n'
           + 'filterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours | none.\n'
           + 'Class: casual names OK (schools, hospitals, residential, …).\n'
-          + 'NUMERIC filterValue MUST be a numeric expression — ">=58", "<30", "20-30". Never put label words in filterValue.\n'
-          + 'Intent → value: walkability high ">=80" low "<30"; height tall ">=50" short "<10"; energy LTB inefficient ">=58" efficient "<=48"; energy UTB inefficient ">=750" efficient "<=300"; uhi4 hot ">=28"; uhi9 hot ">=26"; sunhours high ">=6" low "<4".',
+          + 'NUMERIC filterValue: "<=4" (up to / not more than / limit to), ">=50" (at least / tall), "4" or "=4" (about exactly that value), "20-30" (range). Never put label words in filterValue.\n'
+          + 'Intent → value: walkability high ">=80" low "<30"; height tall ">=50" short "<10" up-to "<=4"; energy LTB inefficient ">=58" efficient "<=48"; energy UTB inefficient ">=750" efficient "<=300"; uhi4 hot ">=28"; uhi9 hot ">=26"; sunhours high ">=6" low "<4".',
         input: {
           type: 'object',
           properties: {
@@ -1099,7 +1135,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
       }
 
       const label = resolvedFilters
-        .map((l) => (l.filterType === 'class' ? l.filterValue : `${l.filterType} ${l.filterValue}`))
+        .map((l) => (l.filterType === 'class' ? l.filterValue : `${l.filterType} ${resolveNumericFilterLabel(l.filterValue)}`))
         .join(' AND ');
 
       let userMessage: string;
@@ -1305,7 +1341,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           color,
           matchCount: count,
           label: resolvedFilters.map((l) =>
-            l.filterType === 'class' ? l.filterValue : `${l.filterType} ${l.filterValue}`
+            l.filterType === 'class' ? l.filterValue : `${l.filterType} ${resolveNumericFilterLabel(l.filterValue)}`
           ).join(' AND ')
         });
       } else {
@@ -1320,7 +1356,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             filterValue: leg.filterValue,
             color: colour,
             matchCount: count,
-            label: leg.filterType === 'class' ? leg.filterValue : `${leg.filterType} ${leg.filterValue}`
+            label: leg.filterType === 'class' ? leg.filterValue : `${leg.filterType} ${resolveNumericFilterLabel(leg.filterValue)}`
           });
         }
       }
