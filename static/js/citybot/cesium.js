@@ -166,10 +166,8 @@ import { appConfig } from './config.js';
           // Clicked on nothing - deselect everything
           window.viewer.selectedEntity = undefined;
           
-          // Reset building color and close building info panel
-          if (window.selectedBuildingFeature) {
-            window.selectedBuildingFeature.color = Cesium.Color.WHITE;
-            window.selectedBuildingFeature = null;          }
+          // Restore building style color and close building info panel
+          window.clearBuildingSelectionHighlight();
           
           // Hide building info panel if visible
           const buildingInfoPanel = document.getElementById('buildingInfoPanel');

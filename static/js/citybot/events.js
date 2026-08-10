@@ -586,14 +586,8 @@ window.subscribeToWoTEvents = async function() {
         // Building click handler - shows building info table and highlights the building
         window.handleBuildingClick = async (feature) => {          
           try {
-            // Reset previous building's color if any
-            if (window.selectedBuildingFeature) {
-              window.selectedBuildingFeature.color = Cesium.Color.WHITE;            }
-            
-            // Highlight the newly selected building with a bright cyan color
-            feature.color = Cesium.Color.CYAN.withAlpha(0.8);            
-            // Store reference to the selected feature
-            window.selectedBuildingFeature = feature;
+            // Highlight without wiping filter/style colors on the previous pick
+            window.highlightBuildingFeature(feature);
             
             // Extract all properties from the clicked building
             const propertyIds = feature.getPropertyIds();
@@ -1391,10 +1385,8 @@ window.subscribeToWoTEvents = async function() {
       document.getElementById('closeBuildingInfo').addEventListener('click', () => {
         document.getElementById('buildingInfoPanel').style.display = 'none';
         
-        // Reset the building color when closing the panel
-        if (window.selectedBuildingFeature) {
-          window.selectedBuildingFeature.color = Cesium.Color.WHITE;
-          window.selectedBuildingFeature = null;        }
+        // Restore filter/style color (do not force white)
+        window.clearBuildingSelectionHighlight();
         
         // Clear the selected building reference
         window.selectedBuilding = null;

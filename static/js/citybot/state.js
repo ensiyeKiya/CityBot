@@ -22,7 +22,27 @@ window.lastCameraState = null;
     // Building interaction
     window.selectedBuilding = null;
     window.selectedBuildingFeature = null; // Store the actual Cesium feature for highlighting
+    window.selectedBuildingPreviousColor = null; // Style color before cyan highlight
     window.llmSelectedBuilding = null;
+
+    /** Restore the selected building's style color (do not force white). */
+    window.clearBuildingSelectionHighlight = function() {
+      if (window.selectedBuildingFeature) {
+        if (window.selectedBuildingPreviousColor) {
+          window.selectedBuildingFeature.color = window.selectedBuildingPreviousColor;
+        }
+        window.selectedBuildingFeature = null;
+      }
+      window.selectedBuildingPreviousColor = null;
+    };
+
+    /** Highlight a Cesium3DTileFeature and remember its pre-highlight color. */
+    window.highlightBuildingFeature = function(feature) {
+      window.clearBuildingSelectionHighlight();
+      window.selectedBuildingPreviousColor = Cesium.Color.clone(feature.color);
+      feature.color = Cesium.Color.CYAN.withAlpha(0.8);
+      window.selectedBuildingFeature = feature;
+    };
 
     function withUserId(payload) {
       if (window.currentUserId != null) {
@@ -131,9 +151,21 @@ window.lastCameraState = null;
       }
       
       try {
+        // If a building is highlighted, drop the per-feature override first so the
+        // new style can paint it; then re-highlight and remember the new color.
+        const rehighlightFeature = window.selectedBuildingFeature;
+        if (rehighlightFeature) {
+          window.selectedBuildingFeature = null;
+          window.selectedBuildingPreviousColor = null;
+        }
+
         // Create Cesium 3D tile style from server-provided definition
         const cesiumStyle = new Cesium.Cesium3DTileStyle(styleDefinition);
         window.sofiaTileset.style = cesiumStyle;
+
+        if (rehighlightFeature) {
+          window.highlightBuildingFeature(rehighlightFeature);
+        }
         return true;
       } catch (error) {
         console.error(`❌ Failed to apply style ${styleName}:`, error);
