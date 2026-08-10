@@ -159,26 +159,29 @@ function collectCurrentTurnUserMessages(conversation: any[]): string[] {
 }
 
 /**
- * Pick the spoken final answer while keeping the tool-learning loop:
- * - 1 tool userMessage  → use it (answer comes from the tool the model called)
- * - 2+ tool userMessages → prefer the model's synthesis (it saw every tool
- *   message; taking only the last one is wrong, e.g. 3 sensor readings → A10)
- * - 0 → model text / later final call
+ * Pick the spoken final answer.
+ * Priority:
+ *   1. Model produced a text answer in the last planning turn → use it.
+ *      (The model saw all tool results and can synthesise naturally.)
+ *   2. Model was silent → fall back to the last tool's userMessage so the
+ *      response is never empty when a tool ran.
+ *   3. Nothing → trigger a separate final LLM call (handled by caller).
+ *
+ * Tool-use reinforcement is maintained through history replay: every past
+ * turn is replayed as assistant[tool_calls] → tool[result] → assistant[answer],
+ * which teaches the model that tool calls produce real outcomes.
  */
 function resolveFinalAnswerFromTools(
   conversation: any[]
 ): { content: string | null; source: 'domain' | 'model' | null } {
-  const toolMessages = collectCurrentTurnUserMessages(conversation);
   const modelAnswer = getDirectPlanningAnswer(conversation);
-
-  if (toolMessages.length === 1) {
-    return { content: toolMessages[0], source: 'domain' };
-  }
-  if (toolMessages.length > 1) {
-    if (modelAnswer) return { content: modelAnswer, source: 'model' };
-    return { content: toolMessages.join(' '), source: 'domain' };
-  }
   if (modelAnswer) return { content: modelAnswer, source: 'model' };
+
+  const toolMessages = collectCurrentTurnUserMessages(conversation);
+  if (toolMessages.length > 0) {
+    return { content: toolMessages[toolMessages.length - 1], source: 'domain' };
+  }
+
   return { content: null, source: null };
 }
 
@@ -752,22 +755,28 @@ async function main() {
     history.forEach((message, idx) => {
       const toolsUsed: string[] = Array.isArray(message?.toolsUsed) ? message.toolsUsed : [];
       if (message?.role === 'assistant' && toolsUsed.length > 0) {
-        // Build fake but structurally correct tool-call messages
+        // Build structurally correct tool-call replay.
+        // For the last tool we embed the final answer as a userMessage so the
+        // model has real context for follow-up questions ("show them", "why?").
         const toolCalls = toolsUsed.map((name, i) => ({
           id: `h${idx}_${i}`,
           type: 'function',
           function: { name, arguments: '{}' }
         }));
         result.push({ role: 'assistant', content: '', tool_calls: toolCalls });
+        const summary = stripLeakedToolMarker(String(message.content ?? '')).trim();
         toolsUsed.forEach((name, i) => {
+          const isLast = i === toolsUsed.length - 1;
           result.push({
             role: 'tool',
             tool_call_id: `h${idx}_${i}`,
             name,
-            content: '{"success":true}'
+            content: isLast && summary
+              ? JSON.stringify({ success: true, userMessage: summary })
+              : '{"success":true}'
           });
         });
-        result.push({ role: 'assistant', content: stripLeakedToolMarker(String(message.content ?? '')) });
+        result.push({ role: 'assistant', content: summary });
       } else {
         result.push({ role: message.role, content: stripLeakedToolMarker(String(message.content ?? '')) });
       }

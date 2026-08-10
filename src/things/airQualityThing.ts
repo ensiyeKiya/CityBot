@@ -76,7 +76,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
     },
     actions: {
       replayPollution: {
-        description: `Replays HISTORICAL measured air pollution on the 3D map as animated colored clouds. Use for past/observed periods only ("show pollution yesterday", "replay PM10 last week"). Do NOT use for forecasts, predictions, or future hours — use replayPrediction instead. Colors follow CAQI daily standard (green=good … dark red=hazardous). Available cities: ${availableCities.join(', ')}. If no city is mentioned, default to "Sofia".`,
+        description: `Replays measured (historical) air pollution on the 3D map as animated colored clouds. Requires a startDate in the past; data available from 2017-02-20. Colors follow CAQI daily standard (green=good … dark red=hazardous). Available cities: ${availableCities.join(', ')}. Defaults to Sofia.`,
         input: {
           type: 'object',
           properties: {
@@ -120,7 +120,7 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         forms: httpForm(TITLE, 'actions', 'replayPollution', ['invokeaction'])
       },
       replayPrediction: {
-        description: `Replays FORECAST / predicted PM10 air pollution as animated clouds. Use for "prediction", "forecast", "next 24 hours", "future pollution" — NOT for past dates (use replayPollution). Do NOT pass startDate; playback starts from the current hour of the available forecast (past forecast hours are skipped). Only PM10. Optional hours (1–${maxPredictionHours}). Available cities: ${availableCities.join(', ')}. Horizons: ${horizonSummary}. Default city: Sofia.`,
+        description: `Replays ML-forecast PM10 air pollution as animated clouds. Playback starts from the current forecast hour (past forecast hours are skipped automatically); do not pass startDate. Hours 1–${maxPredictionHours}. Available cities: ${availableCities.join(', ')}. Forecast horizons: ${horizonSummary}. Defaults to Sofia.`,
         input: {
           type: 'object',
           properties: {
