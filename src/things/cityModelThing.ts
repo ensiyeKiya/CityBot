@@ -649,7 +649,7 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
           + '- AND: filters=[...] combineMode "AND" (default). Example tall hospitals: filters=[{filterType:"class",filterValue:"healthcare"},{filterType:"height",filterValue:">=30"}].\n'
           + '- OR: combineMode "OR" with per-leg colors.\n'
           + '- Shared AND on every OR group: andFilters.\n'
-          + '- Reset: filterType "none".\n\n'
+          + '- Reset: filterType "none" — clears highlights and paints all buildings white (does not restore walkability/energy/etc.).\n\n'
           + 'filterType: class | walkability | height | energy LTB | energy UTB | uhi4 | uhi9 | sunhours | none.\n'
           + 'Class: casual names OK (schools, hospitals, residential, …).\n'
           + 'NUMERIC filterValue: "<=4" (up to / not more than / limit to), ">=50" (at least / tall), "4" or "=4" (about exactly that value), "20-30" (range). Never put label words in filterValue.\n'
@@ -1189,8 +1189,9 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
 
       const userId = input?._userId ?? null;
 
-      // ── Reset ────────────────────────────────────────────────────────────
+      // ── Reset → white default (do not restore a previous city-wide style) ─
       if (input.filterType === 'none') {
+        const styleDefinition = STYLE_DEFINITIONS.none;
         try {
           await emitEvent('visualizationStyleChanged', {
             userId,
@@ -1198,12 +1199,12 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
             toolCallId: input?._toolCallId ?? null,
             style: 'none',
             styleName: 'Default Style',
-            styleDefinition: { show: true },
+            styleDefinition,
             appliedResult: {
               action: 'clearFilter',
               style: 'none',
               styleName: 'Default Style',
-              description: 'Building filter cleared; map reset to default building appearance'
+              description: 'Building filter cleared; all buildings are white'
             },
             timestamp: new Date().toISOString()
           });
@@ -1213,13 +1214,13 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         }
         return {
           success: true,
-          message: 'Removed building filter and reset to default visualization style',
-          userMessage: 'Building filter cleared; the map is back to the default style.',
-          filter: { type: 'none', style: { show: true } },
+          message: 'Removed building filter; buildings reset to white',
+          userMessage: 'Building filter cleared; all buildings are white again.',
+          filter: { type: 'none', style: styleDefinition },
           uiEffect: {
             needsAck: true,
             timeoutMs: 5000,
-            summary: 'Clear building filter / reset default style'
+            summary: 'Clear building filter / reset to white'
           }
         };
       }
