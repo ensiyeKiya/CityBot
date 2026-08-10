@@ -34,6 +34,15 @@ function extractInput(params: any): Promise<any> {
   return Promise.resolve(params);
 }
 
+/** One-word operator label for spoken replies (e.g. "GATE", "ExEA", "Municipality"). */
+function shortOperatorLabel(operator: string): string {
+  const o = operator.toLowerCase();
+  if (o.includes('gate')) return 'GATE';
+  if (o.includes('exea') || o.includes('executive')) return 'ExEA';
+  if (o.includes('municipality') || o.includes('airthings')) return 'Municipality';
+  return '';
+}
+
 /** Short everyday labels for citygml building classes (spoken replies). */
 function friendlyBuildingClassLabel(cls: string): string {
   const map: Record<string, string> = {
@@ -152,7 +161,12 @@ function sensorsNearUserMessage(options: {
 
   const nearest = nearby
     .slice(0, 3)
-    .map((f) => `${String(f.properties.object || 'Sensor')} (${f.properties.nearestDistanceM} m)`)
+    .map((f) => {
+      const name = String(f.properties.object || 'Sensor');
+      const op = shortOperatorLabel(String(f.properties.operator || ''));
+      const dist = f.properties.nearestDistanceM;
+      return op ? `${name}/${op} (${dist} m)` : `${name} (${dist} m)`;
+    })
     .join(', ');
 
   const bandRank = (q: string) => {
@@ -213,6 +227,7 @@ function buildNearbySensorFacts(
       : null;
     return {
       station: f.properties.object,
+      operator: shortOperatorLabel(String(f.properties.operator || '')),
       distanceM: f.properties.nearestDistanceM,
       value,
       quality: value != null && parameter ? qualityLabelForValue(value, parameter) : null,
