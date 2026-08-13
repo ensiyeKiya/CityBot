@@ -3,156 +3,222 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CityBot: Talking to and Steering an Urban Digital Twin</title>
-  <meta name="description" content="CityBot: Talking to and Steering an Urban Digital Twin">
+  <title>CityBot: A Conversational Agent for an Interactive Urban Digital Twin</title>
+  <meta name="description" content="Demonstration companion for CityBot, a conversational Web-of-Things interface to Sofia’s urban digital twin.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="author" content="S. Ensiye Kiyamousavi, Boris Kraychev, Evgeny Shirinyan, Plamena Krasteva, Stoyan Nikolov, Dessislava Petrova-Antonova, Jan Bosch, Helena Holmström Olsson">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=Source+Code+Pro:wght@450&display=swap" rel="stylesheet">
   <style>
     :root {
-      --navy: #1a365d;
-      --accent: #006daa;
-      --accent-light: #e8f4fa;
-      --text: #2d3748;
-      --muted: #5a6778;
-      --border: #e2e8f0;
-      --bg: #f8fafc;
+      --ink: #1c1917;
+      --body: #3f3a36;
+      --muted: #6b6560;
+      --rule: #d6d0c8;
+      --paper: #fbfaf7;
       --white: #ffffff;
-      --radius: 12px;
-      --shadow: 0 4px 24px rgba(26, 54, 93, 0.08);
+      --accent: #1e3a5f;
+      --link: #1a4f7a;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html { scroll-behavior: smooth; }
+
     body {
-      font-family: 'Source Sans 3', system-ui, sans-serif;
-      color: var(--text);
-      background: var(--bg);
-      line-height: 1.65;
+      font-family: 'Source Sans 3', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 16.5px;
+      line-height: 1.62;
+      color: var(--body);
+      background: var(--paper);
     }
 
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    a {
+      color: var(--link);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }
+    a:hover { border-bottom-color: currentColor; }
 
-    .hero {
-      background: linear-gradient(135deg, var(--navy) 0%, #234876 100%);
-      color: var(--white);
-      padding: 3.5rem 1.5rem 3rem;
+    code, .mono {
+      font-family: 'Source Code Pro', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.86em;
+      font-weight: 450;
+    }
+
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+    }
+
+    /* —— Title block, paper-like —— */
+    header.masthead {
       text-align: center;
+      padding: 3.25rem 0 2.25rem;
+      border-bottom: 1px solid var(--rule);
     }
 
-    .hero .badge {
-      display: inline-block;
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 999px;
-      padding: 0.35rem 1rem;
-      font-size: 0.85rem;
-      letter-spacing: 0.02em;
-      margin-bottom: 1.25rem;
-    }
-
-    .hero h1 {
-      font-family: 'Source Serif 4', Georgia, serif;
-      font-size: clamp(1.75rem, 4vw, 2.5rem);
+    .venue {
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
       font-weight: 600;
-      max-width: 820px;
-      margin: 0 auto 1rem;
-      line-height: 1.25;
+      margin-bottom: 1.35rem;
     }
 
-    .hero p {
-      max-width: 720px;
-      margin: 0 auto 1.75rem;
-      font-size: 1.1rem;
-      opacity: 0.92;
+    header.masthead h1 {
+      font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+      font-weight: 600;
+      font-size: clamp(1.45rem, 3.4vw, 1.95rem);
+      line-height: 1.28;
+      color: var(--ink);
+      letter-spacing: -0.012em;
+      margin-bottom: 1.35rem;
     }
 
-    .hero-actions {
+    .author-list {
+      font-size: 0.98rem;
+      color: var(--ink);
+      line-height: 1.7;
+      max-width: 38em;
+      margin: 0 auto;
+    }
+
+    .author-list sup {
+      font-size: 0.68em;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .affil-list {
+      list-style: none;
+      margin: 0.95rem auto 0;
+      max-width: 36em;
+      font-size: 0.84rem;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .affil-list li + li { margin-top: 0.15rem; }
+
+    .affil-list .mark {
+      font-weight: 700;
+      color: var(--ink);
+      margin-right: 0.28rem;
+    }
+
+    nav.paper-links {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem;
       justify-content: center;
-    }
-
-    .btn {
-      display: inline-block;
-      padding: 0.65rem 1.35rem;
-      border-radius: 8px;
+      gap: 0.35rem 0.15rem;
+      margin-top: 1.5rem;
+      font-size: 0.84rem;
       font-weight: 600;
-      font-size: 0.95rem;
-      transition: transform 0.15s, box-shadow 0.15s;
+      letter-spacing: 0.02em;
     }
 
-    .btn:hover { text-decoration: none; transform: translateY(-1px); }
-
-    .btn-primary {
+    nav.paper-links a {
+      color: var(--accent);
+      border: 1px solid var(--rule);
       background: var(--white);
-      color: var(--navy);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      padding: 0.38rem 0.85rem;
+      border-radius: 2px;
     }
 
-    .btn-secondary {
-      background: transparent;
-      color: var(--white);
-      border: 1px solid rgba(255,255,255,0.45);
+    nav.paper-links a:hover {
+      border-color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: #f4f1ea;
     }
 
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 0 1.5rem;
-    }
-
+    /* —— Sections —— */
     section {
-      padding: 3rem 0;
+      padding: 2.15rem 0 0;
     }
 
     section + section {
-      border-top: 1px solid var(--border);
+      margin-top: 1.85rem;
+      padding-top: 1.85rem;
+      border-top: 1px solid var(--rule);
     }
 
     h2 {
       font-family: 'Source Serif 4', Georgia, serif;
-      color: var(--navy);
-      font-size: 1.65rem;
-      margin-bottom: 1.25rem;
+      font-size: 1.22rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 0.85rem;
+      letter-spacing: -0.01em;
     }
 
     h3 {
-      color: var(--navy);
-      font-size: 1.1rem;
-      margin: 1.5rem 0 0.75rem;
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 1.02rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 1.45rem 0 0.6rem;
     }
 
-    p { margin-bottom: 1rem; }
+    p { margin-bottom: 0.85rem; }
 
-    ul { margin: 0 0 1rem 1.25rem; }
-    li { margin-bottom: 0.4rem; }
-
-    /* Video section */
-    .video-section {
-      margin-top: -2rem;
-      padding-bottom: 1rem;
+    p.lead {
+      font-size: 1.02rem;
+      color: var(--ink);
     }
 
-    .video-card {
-      background: var(--white);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      border: 1px solid var(--border);
+    .abstract-label {
+      font-variant: small-caps;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+      color: var(--ink);
+      margin-right: 0.35em;
     }
 
-    .video-wrapper {
+    ul.plain {
+      margin: 0.2rem 0 1rem 1.15rem;
+    }
+
+    ul.plain li { margin-bottom: 0.4rem; }
+    ul.plain li::marker { color: var(--muted); }
+
+    .index-terms {
+      font-size: 0.92rem;
+      color: var(--muted);
+      margin-top: 1.1rem;
+    }
+
+    .index-terms .label {
+      font-variant: small-caps;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      color: var(--ink);
+      margin-right: 0.3em;
+    }
+
+    .index-terms em { font-style: italic; color: var(--body); }
+
+    /* —— Figures —— */
+    figure {
+      margin: 0;
+    }
+
+    figure.video {
+      margin-top: 1.75rem;
+    }
+
+    .video-frame {
       position: relative;
       width: 100%;
       aspect-ratio: 16 / 9;
-      background: #0f172a;
+      background: #111;
+      border: 1px solid var(--rule);
     }
 
-    .video-wrapper video,
-    .video-wrapper iframe {
+    .video-frame iframe {
       position: absolute;
       inset: 0;
       width: 100%;
@@ -160,404 +226,379 @@
       border: 0;
     }
 
-    .video-placeholder {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #94a3b8;
-      text-align: center;
-      padding: 2rem;
-      background: linear-gradient(145deg, #1e293b, #0f172a);
-    }
-
-    .video-placeholder svg {
-      width: 64px;
-      height: 64px;
-      margin-bottom: 1rem;
-      opacity: 0.5;
-    }
-
-    .video-placeholder p {
-      margin: 0;
-      max-width: 420px;
-      font-size: 0.95rem;
+    figcaption {
+      font-size: 0.86rem;
       line-height: 1.5;
+      color: var(--muted);
+      margin-top: 0.65rem;
+      text-align: left;
     }
 
-    .video-placeholder code {
-      background: rgba(255,255,255,0.08);
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.85rem;
-    }
-
-    .video-caption a {
-      font-weight: 600;
-    }
-
-    .video-fallback {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 1rem;
-      background: linear-gradient(145deg, #1e293b, #0f172a);
-      color: #e2e8f0;
-      text-align: center;
-      padding: 2rem;
-    }
-
-    .watch-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.6rem;
-      background: var(--accent);
-      color: white !important;
+    figcaption .fig-label {
       font-weight: 700;
-      font-size: 1.05rem;
-      padding: 0.85rem 1.6rem;
-      border-radius: 999px;
-      text-decoration: none !important;
-      box-shadow: 0 4px 16px rgba(0, 109, 170, 0.35);
+      color: var(--ink);
+      font-variant: small-caps;
+      letter-spacing: 0.04em;
     }
 
-    .watch-btn:hover {
-      background: #0084c7;
-      transform: translateY(-1px);
-    }
-
-    .video-fallback p {
-      margin: 0;
-      max-width: 420px;
-      font-size: 0.9rem;
-      color: #94a3b8;
-      line-height: 1.5;
-    }
-
-    .video-caption {
-      padding: 1rem 1.25rem;
-      font-size: 0.9rem;
-      color: var(--muted);
-      border-top: 1px solid var(--border);
-    }
-
-    .keywords {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.5rem;
-    }
-
-    .keywords span {
-      background: var(--accent-light);
-      color: var(--navy);
-      font-size: 0.82rem;
-      padding: 0.25rem 0.65rem;
-      border-radius: 999px;
-    }
-
-    .demo-step {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1rem 1.15rem;
-      margin-bottom: 0.75rem;
-    }
-
-    .demo-step strong {
-      color: var(--navy);
-      display: block;
-      margin-bottom: 0.35rem;
-      font-style: italic;
-    }
-
-    .demo-step p {
-      margin: 0;
-      font-size: 0.92rem;
-      color: var(--muted);
-    }
-
-    .component-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1rem;
-    }
-
-    .component-card {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1rem 1.15rem;
-    }
-
-    .component-card h4 {
-      color: var(--navy);
-      margin-bottom: 0.4rem;
-      font-size: 1rem;
-    }
-
-    .component-card p {
-      margin: 0;
-      font-size: 0.9rem;
-      color: var(--muted);
-    }
-
-    .arch-figure {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1rem;
-      text-align: center;
-    }
-
-    .arch-figure img {
+    figure.arch img {
       display: block;
       width: 100%;
       height: auto;
-      border-radius: 8px;
+      border: 1px solid var(--rule);
+      background: var(--white);
     }
 
-    .arch-figure figcaption {
-      margin-top: 0.75rem;
-      font-size: 0.88rem;
-      color: var(--muted);
-      line-height: 1.45;
+    /* —— Component list (not cards) —— */
+    dl.components {
+      display: grid;
+      grid-template-columns: 9.5rem 1fr;
+      gap: 0.55rem 1.1rem;
+      margin: 0.4rem 0 0.4rem;
+      font-size: 0.95rem;
     }
 
-    /* Tables */
+    dl.components dt {
+      font-weight: 700;
+      color: var(--ink);
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--rule);
+    }
+
+    dl.components dd {
+      color: var(--body);
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--rule);
+      margin: 0;
+    }
+
+    /* —— Academic tables —— */
     .table-wrap {
       overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--white);
+      margin: 0.4rem 0 0.2rem;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.92rem;
+      font-size: 0.82rem;
+      line-height: 1.42;
     }
 
-    th, td {
-      padding: 0.75rem 1rem;
+    table.affordance td:nth-child(1),
+    table.affordance td:nth-child(2),
+    table.affordance th:nth-child(1),
+    table.affordance th:nth-child(2) {
+      white-space: nowrap;
+    }
+
+    caption {
+      caption-side: top;
       text-align: left;
-      border-bottom: 1px solid var(--border);
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
     }
 
-    th {
-      background: var(--accent-light);
-      color: var(--navy);
-      font-weight: 600;
+    caption .fig-label {
+      font-weight: 700;
+      color: var(--ink);
+      font-variant: small-caps;
+      letter-spacing: 0.04em;
     }
 
-    tr:last-child td { border-bottom: none; }
+    thead th {
+      font-weight: 700;
+      color: var(--ink);
+      text-align: left;
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+      padding: 0.45rem 0.7rem 0.45rem 0;
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 0.55rem 0.7rem 0.55rem 0;
+      vertical-align: top;
+      border-bottom: 1px solid var(--rule);
+      color: var(--body);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 2px solid var(--ink);
+    }
 
     .resource-links {
       list-style: none;
       margin: 0;
       padding: 0;
-      font-size: 0.85rem;
+      font-size: 0.86rem;
     }
 
-    .resource-links li {
-      margin-bottom: 0.25rem;
-    }
+    .resource-links li + li { margin-top: 0.12rem; }
 
-    .resource-links li:last-child {
-      margin-bottom: 0;
-    }
-
-    /* Demo queries */
-    .queries {
+    /* —— Walkthrough as enumerated paper list —— */
+    ol.walkthrough {
       list-style: none;
-      margin: 0;
-      padding: 0;
+      counter-reset: step;
+      margin: 0.5rem 0 0;
     }
 
-    .queries li {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.85rem 1.1rem;
-      margin-bottom: 0.6rem;
+    ol.walkthrough li {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 1.7rem 1fr;
+      gap: 0.55rem;
+      padding: 0.7rem 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    ol.walkthrough li:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    ol.walkthrough li::before {
+      content: counter(step) ".";
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 0.95rem;
+    }
+
+    ol.walkthrough .utterance {
       font-style: italic;
+      color: var(--ink);
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+
+    ol.walkthrough .note {
+      font-size: 0.92rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    /* —— Acknowledgments / footer —— */
+    .ack {
+      font-size: 0.9rem;
       color: var(--muted);
     }
 
-    .queries li::before {
-      content: "“";
-      color: var(--accent);
-      font-weight: 700;
-      margin-right: 0.15rem;
-    }
-
-    .queries li::after {
-      content: "”";
-      color: var(--accent);
-      font-weight: 700;
-    }
-
-    /* Citation */
-    pre {
-      background: #1e293b;
-      color: #e2e8f0;
-      padding: 1.25rem;
-      border-radius: var(--radius);
-      overflow-x: auto;
-      font-size: 0.8rem;
-      line-height: 1.5;
-    }
-
     footer {
-      background: var(--navy);
-      color: rgba(255,255,255,0.85);
-      padding: 2.5rem 1.5rem;
-      text-align: center;
-      font-size: 0.9rem;
+      max-width: 860px;
+      margin: 2.5rem auto 0;
+      padding: 1.25rem 1.5rem 2.5rem;
+      border-top: 1px solid var(--rule);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.55;
     }
 
-    footer a { color: #93c5fd; }
-    footer p { margin-bottom: 0.5rem; }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--link); }
 
-    @media (max-width: 900px) {
-      .component-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    @media (max-width: 600px) {
-      .hero { padding: 2.5rem 1rem 2rem; }
-      section { padding: 2rem 0; }
-      .component-grid {
+    @media (max-width: 680px) {
+      header.masthead { padding: 2.2rem 0 1.6rem; }
+      dl.components {
         grid-template-columns: 1fr;
+        gap: 0.15rem;
       }
+      dl.components dt {
+        border-top: none;
+        padding-top: 0.85rem;
+      }
+      dl.components dd {
+        border-top: none;
+        padding-top: 0;
+        padding-bottom: 0.35rem;
+      }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
     }
   </style>
 </head>
 <body>
+  <article class="page">
 
-  <header class="hero">
-    <h1>CityBot: Talking to and Steering an Urban Digital Twin</h1>
-    <p>
-      CityBot is a conversational interface for exploring Sofia’s urban digital twin. An LLM maps free-form
-      requests to typed WoT actions, while a Cesium.js frontend renders navigation, semantic
-      filtering, pollution replay, and forecast visualizations on an interactive 3D globe.
-    </p>
-    <div class="hero-actions">
-      <a class="btn btn-secondary" id="github-btn" href="https://github.com/ensiyeKiya/CityBot" target="_blank" rel="noopener">View Source on GitHub</a>
-    </div>
-  </header>
+    <header class="masthead">
+      <p class="venue">Demonstration companion</p>
+      <h1>CityBot: A Conversational Agent for an Interactive Urban Digital Twin</h1>
+      <p class="author-list">
+        S.&nbsp;Ensiye Kiyamousavi<sup>1,2</sup>,
+        Boris Kraychev<sup>1</sup>,
+        Evgeny Shirinyan<sup>1</sup>,
+        Plamena Krasteva<sup>1</sup>,
+        Stoyan Nikolov<sup>1</sup>,
+        Dessislava Petrova-Antonova<sup>1</sup>,
+        Jan Bosch<sup>2</sup>,
+        Helena Holmström Olsson<sup>3</sup>
+      </p>
+      <ul class="affil-list">
+        <li><span class="mark">1</span> Big Data for Smart Society Institute (GATE), Sofia University “St.&nbsp;Kliment Ohridski”, Sofia, Bulgaria</li>
+        <li><span class="mark">2</span> Eindhoven University of Technology, Eindhoven, The Netherlands</li>
+        <li><span class="mark">3</span> Malmö University, Malmö, Sweden</li>
+      </ul>
+      <nav class="paper-links" aria-label="Paper resources">
+        <a href="https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing" target="_blank" rel="noopener">Full-quality video</a>
+        <a href="https://github.com/ensiyeKiya/CityBot" target="_blank" rel="noopener">Source code</a>
+        <a href="mailto:ensiye.kiyamousavi@gate-ai.eu">Contact</a>
+      </nav>
+    </header>
 
-  <div class="container">
-
-    <!-- Demo Video -->
-    <section class="video-section" id="demo-video">
-      <h2>Demo Video</h2>
-      <div class="video-card">
-        <div class="video-wrapper">
-          <iframe
-            src="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/preview"
-            title="CityBot demo video"
-            allow="autoplay; encrypted-media"
-            allowfullscreen>
-          </iframe>
-        </div>
-        <div class="video-caption">
-          Demo video embedded from Google Drive.
-          For better quality use
-          <a href="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/view?usp=sharing" target="_blank" rel="noopener">Open in Google Drive ↗</a>
-        </div>
+    <figure class="video" id="demo-video">
+      <div class="video-frame">
+        <iframe
+          src="https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/preview"
+          title="CityBot demonstration video"
+          allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+          allowfullscreen
+          loading="lazy">
+        </iframe>
       </div>
-    </section>
+      <figcaption>
+        Demonstration of CityBot on Sofia’s urban digital twin.
+        The embedded player is a compressed preview;
+        <a href="https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing" target="_blank" rel="noopener">open in Google Drive</a>
+        for full quality.
+      </figcaption>
+    </figure>
 
-    <!-- Overview -->
     <section id="overview">
-      <h2>Overview</h2>
-      <p>
-        Urban digital twins integrate heterogeneous geospatial, environmental, and semantic data,
-        but their use often remains limited to experts operating GIS tools, domain-specific APIs,
-        or bespoke dashboards. SmartBot lowers this barrier with a <strong>WoT-grounded conversational
-        interface</strong> for Sofia, Bulgaria — exposing urban capabilities as a machine-readable
-        affordance catalog that an LLM can invoke through typed actions.
+      <h2>Abstract</h2>
+      <p class="lead">
+        Urban Digital Twins (UDT) integrate heterogeneous geospatial, environmental,
+        and semantic data with varying spatial and temporal resolutions, but their use
+        often remains limited to experts who operate GIS tools, domain-specific APIs,
+        or bespoke dashboards. In this context, we present CityBot, a conversational
+        user interface (UI) to explore the UDT of Sofia, Bulgaria.
       </p>
       <p>
-        Building on a previously introduced WoT-based architecture for integrating LLM agents with
-        heterogeneous systems, SmartBot maintains <strong>bidirectional synchronization</strong>
-        between the conversational context and the live 3D environment: LLM-selected actions update
-        the Cesium.js globe, while camera and building state ground subsequent user requests.
+        Building on a WoT-based architecture for integrating LLM agents with
+        heterogeneous systems, CityBot develops an urban-specific affordance model
+        that exposes six resources: a semantic 3D city model, historical air-quality
+        data, ML-based pollution forecasts, a multi-operator environmental sensor
+        network, Wikipedia-grounded building knowledge, and live weather and
+        geocoding services. An LLM maps free-form requests to typed WoT actions,
+        while a Cesium.js frontend renders navigation, semantic filtering, pollution
+        replay, and forecast visualizations on an interactive 3D globe. The
+        demonstration allows users to issue their own natural-language requests and
+        directly observe the resulting multi-step interactions with Sofia’s UDT.
       </p>
 
       <h3>Contributions</h3>
-      <ul>
-        <li>A conversational urban digital twin with a domain-specific affordance model for navigation, semantic building interaction, environmental queries, historical replay, and predictive visualization</li>
-        <li>Six-resource integration spanning 3D city model, historical air quality, ML pollution forecasts, multi-operator sensor network, Wikipedia-grounded building knowledge, and live weather/geocoding</li>
-        <li>Bidirectional synchronization between natural-language dialogue and live map state</li>
+      <ul class="plain">
+        <li>An LLM agent for natural-language interaction with a UDT, implemented through a WoT-based affordance model for navigation, semantic building interaction, environmental queries, historical pollution replay, and forecast visualization.</li>
+        <li>A six-resource integration spanning a semantic 3D city model, historical air quality, pollution forecasts, a multi-operator environmental sensor network, Wikipedia-grounded building knowledge, live weather, and geocoding services.</li>
+        <li>A bidirectionally synchronized conversational interface in which LLM-selected actions update the Cesium globe, while camera and building state context ground subsequent user requests.</li>
       </ul>
 
+      <p class="index-terms">
+        <span class="label">Index Terms—</span>
+        <em>Urban Digital Twin, Smart City, Web of Things, Large Language Model, Agent.</em>
+      </p>
     </section>
 
-    <!-- Architecture -->
     <section id="architecture">
       <h2>System Architecture</h2>
-      <figure class="arch-figure">
-        <img src="images/architecture.png" alt="CityBot four-component WoT integration architecture">
+      <figure class="arch">
+        <img src="images/architecture.png" alt="CityBot architecture: Domain Things host, LLM Thing, and UI client">
+        <figcaption>
+          <span class="fig-label">Figure 2.</span>
+          Two <code>@node-wot/core</code> servients: a Domain Things host
+          (<code>citymodel</code>, <code>airquality</code>, <code>api</code>, <code>knowledge</code>)
+          and an <code>llm</code> Thing that consumes them and serves the web UI.
+          The browser is a WoT consumer, not a Thing.
+        </figcaption>
       </figure>
 
       <h3>Components</h3>
-      <div class="component-grid">
-        <div class="component-card">
-          <h4>WoT Gateway</h4>
-          <p>Hosts four Domain Things with W3C Thing Descriptions over HTTP/MQTT: <code>citymodel</code>, <code>airquality</code>, <code>api</code>, <code>knowledge</code>.</p>
-        </div>
-        <div class="component-card">
-          <h4>LLM Thing</h4>
-          <p>Multi-turn planning loop: injects camera and selected-building context, invokes WoT actions as OpenAI tools, supports Whisper STT and Kokoro TTS via DeepInfra.</p>
-        </div>
-        <div class="component-card">
-          <h4>Domain Things</h4>
-          <p>Adapt heterogeneous urban services — CityGML 3D tiles, PostgreSQL air quality, sensor feeds, Nominatim, OpenWeatherMap, Qdrant RAG to a common affordance model.</p>
-        </div>
-        <div class="component-card">
-          <h4>UI Thing</h4>
-          <p>Cesium.js WoT consumer: MQTT-driven map updates, incremental response streaming, bidirectional shared context with the LLM Thing.</p>
-        </div>
-      </div>
+      <dl class="components">
+        <dt>Domain Things host</dt>
+        <dd>Exposes four Domain Things with W3C Thing Descriptions over HTTP/MQTT: <code>citymodel</code>, <code>airquality</code>, <code>api</code>, <code>knowledge</code>.</dd>
+        <dt>LLM Thing</dt>
+        <dd>Multi-turn planning loop: injects camera and selected-building context, invokes WoT actions as tools, and supports Whisper STT and Kokoro TTS via DeepInfra.</dd>
+        <dt>Domain Things</dt>
+        <dd>Adapt heterogeneous urban services—CityGML 3D tiles, PostgreSQL air quality, sensor feeds, Nominatim, OpenWeatherMap, Qdrant RAG—to a common affordance model.</dd>
+        <dt>UI client</dt>
+        <dd>Cesium.js WoT consumer: MQTT-driven map updates, incremental response streaming, and bidirectional shared context with the LLM Thing.</dd>
+      </dl>
 
-      <h3>Urban affordances (WoT Thing Description)</h3>
+      <h3>Things</h3>
+      <p>
+        Each Thing publishes a W3C Thing Description at its HTTP endpoint.
+        Action forms are bound to HTTPS; map-state and stream events are delivered over MQTT.
+      </p>
       <div class="table-wrap">
         <table>
+          <caption><span class="fig-label">Table I.</span> WoT Things hosted by CityBot.</caption>
+          <thead>
+            <tr><th>Thing</th><th>Host</th><th>Role</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>citymodel</code></td>
+              <td>Domain Things servient</td>
+              <td>GATE Sofia 3D Tiles, camera navigation, visualization styles, and building filters.</td>
+            </tr>
+            <tr>
+              <td><code>airquality</code></td>
+              <td>Domain Things servient</td>
+              <td>Historical PM<sub>10</sub>/PM<sub>2.5</sub> grid replay and ML forecast clouds.</td>
+            </tr>
+            <tr>
+              <td><code>api</code></td>
+              <td>Domain Things servient</td>
+              <td>Live weather, Nominatim geocoding, and the GATE CityLab sensor network.</td>
+            </tr>
+            <tr>
+              <td><code>knowledge</code></td>
+              <td>Domain Things servient</td>
+              <td>Building-level Wikipedia RAG over an offline Qdrant index.</td>
+            </tr>
+            <tr>
+              <td><code>llm</code></td>
+              <td>LLM servient</td>
+              <td>Consumes the four Domain Things as tools; conversation, STT, TTS, and UI-status reporting.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Urban affordances</h3>
+      <div class="table-wrap">
+        <table>
+          <caption><span class="fig-label">Table II.</span> Representative actions, events, and properties from the Thing Descriptions.</caption>
           <thead>
             <tr><th>Type</th><th>Group</th><th>Examples</th></tr>
           </thead>
           <tbody>
             <tr><td>Action</td><td>Navigation</td><td><code>flyTo</code>, <code>getCoordinates</code>, <code>setCameraView</code>, <code>reverseGeocode</code></td></tr>
             <tr><td>Action</td><td>3D model</td><td><code>loadTiles</code>, <code>filterBuildings</code>, <code>setVisualizationStyle</code></td></tr>
+            <tr><td>Action</td><td>Sensors</td><td><code>loadSensors</code>, <code>filterSensors</code>, <code>removeSensors</code></td></tr>
             <tr><td>Action</td><td>Queries</td><td><code>getWikipediaSummary</code>, <code>getWeather</code></td></tr>
             <tr><td>Action</td><td>Pollution</td><td><code>replayPollution</code>, <code>replayPrediction</code>, <code>clearPollutionClouds</code></td></tr>
-            <tr><td>Event</td><td>Map state</td><td>Layer, tileset, sensor, building-selection, pollution-replay updates</td></tr>
-            <tr><td>Property</td><td>Context</td><td><code>cameraState</code>, <code>selectedBuildingState</code>, weather configuration</td></tr>
+            <tr><td>Event</td><td>Map state</td><td>Tileset, style, sensor, building-selection, and pollution-replay updates</td></tr>
+            <tr><td>Property</td><td>Context</td><td><code>cameraState</code>, <code>selectedBuildingState</code></td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- Urban data -->
     <section id="resources">
       <h2>Urban Data Resources</h2>
       <div class="table-wrap">
         <table>
+          <caption><span class="fig-label">Table III.</span> Heterogeneous urban resources exposed as WoT affordances.</caption>
           <thead>
             <tr><th>Resource</th><th>Description</th><th>Sources</th><th>Thing</th></tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>Sofia 3D City Model</strong></td>
-              <td>CityGML-derived 3D Tiles with per-building walkability, height, UHI, energy bounds, and building class (residential, healthcare, educational, commercial)</td>
+              <td>Sofia 3D city model</td>
+              <td>CityGML-derived 3D Tiles with per-building walkability, height, UHI, energy bounds, and building class (residential, healthcare, educational, commercial).</td>
               <td>
                 <ul class="resource-links">
                   <li><a href="https://github.com/eshirinyan/three_sample/tree/main/sofia_building_tiles_20250821" target="_blank" rel="noopener">GATE 3D Tiles</a></li>
@@ -566,8 +607,8 @@
               <td><code>citymodel</code></td>
             </tr>
             <tr>
-              <td><strong>Historical Air Quality</strong></td>
-              <td>Hourly PM₁₀ / PM₂.₅ grid from Sensor.Community (Sofia &amp; Burgas since 2018), replayed over user-specified periods with CAQI coloring</td>
+              <td>Historical air quality</td>
+              <td>Hourly PM<sub>10</sub> / PM<sub>2.5</sub> grid from Sensor.Community (Sofia and Burgas since 2018), replayed over user-specified periods with CAQI coloring.</td>
               <td>
                 <ul class="resource-links">
                   <li><a href="https://sensor.community/en/" target="_blank" rel="noopener">Sensor.Community</a></li>
@@ -576,8 +617,8 @@
               <td><code>airquality</code></td>
             </tr>
             <tr>
-              <td><strong>ML Pollution Forecasting</strong></td>
-              <td>24-hour PM forecasts via LSTM (trained 2018–2022, validated 2023–2024) using historical PM + meteorological variables</td>
+              <td>ML pollution forecasting</td>
+              <td>24-hour PM forecasts via LSTM (trained 2018–2022, validated 2023–2024) using historical PM and meteorological variables.</td>
               <td>
                 <ul class="resource-links">
                   <li><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a></li>
@@ -587,8 +628,8 @@
               <td><code>airquality</code></td>
             </tr>
             <tr>
-              <td><strong>Environmental Sensor Network</strong></td>
-              <td>Stations from Sofia Municipality, ExEA, and GATE — PM, gases (CO, NO₂, O₃…), and meteorological variables</td>
+              <td>Environmental sensor network</td>
+              <td>Stations from Sofia Municipality, ExEA, and GATE—PM, gases (CO, NO<sub>2</sub>, O<sub>3</sub>, …), and meteorological variables.</td>
               <td>
                 <ul class="resource-links">
                   <li><a href="https://citylab.gate-ai.eu/#project-sofia-sensors" target="_blank" rel="noopener">GATE CityLab API</a></li>
@@ -597,19 +638,18 @@
               <td><code>api</code></td>
             </tr>
             <tr>
-              <td><strong>Wikipedia-Grounded Knowledge</strong></td>
-              <td>Buildings linked to Bulgarian Wikipedia; offline RAG with BAAI/bge-m3 embeddings in Qdrant, filtered by <code>wiki_pageid</code> at query time</td>
+              <td>Wikipedia-grounded knowledge</td>
+              <td>Buildings linked to Bulgarian Wikipedia; offline RAG with BAAI/bge-m3 embeddings in Qdrant, filtered by <code>wiki_pageid</code> at query time.</td>
               <td>
                 <ul class="resource-links">
-                  <li>internal database</li>
-                  
+                  <li>Bulgarian Wikipedia (offline index)</li>
                 </ul>
               </td>
               <td><code>knowledge</code></td>
             </tr>
             <tr>
-              <td><strong>Weather &amp; Geocoding</strong></td>
-              <td>Nominatim (OpenStreetMap) forward/reverse geocoding chained with OpenWeatherMap for live conditions</td>
+              <td>Weather and geocoding</td>
+              <td>Nominatim (OpenStreetMap) forward/reverse geocoding chained with OpenWeatherMap for live conditions.</td>
               <td>
                 <ul class="resource-links">
                   <li><a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a></li>
@@ -624,78 +664,82 @@
       </div>
     </section>
 
-    <!-- Demo walkthrough -->
     <section id="walkthrough">
       <h2>Demonstration Walkthrough</h2>
-      <p>Each step below shows a different combination of data access, tool chaining, and visual feedback on the Sofia digital twin.</p>
-
-      <div class="demo-step">
-        <strong>“Load Sofia’s 3D buildings and color them by walkability.”</strong>
-        <p>Invokes <code>loadTiles</code> + <code>setVisualizationStyle</code> — graduated-color style from per-building walkability scores.</p>
-      </div>
-      <div class="demo-step">
-        <strong>“Show hospitals in red.”</strong>
-        <p>Invokes <code>filterBuildings</code> with <code>class=healthcare</code>; matching buildings highlighted in red, others in white.</p>
-      </div>
-      <div class="demo-step">
-        <strong>“Which buildings have the lowest walkability? Color them blue.”</strong>
-        <p>LLM translates “lowest walkability” to threshold <code>&lt;30</code> and filters with blue highlight.</p>
-      </div>
-      <div class="demo-step">
-        <strong>“Replay air pollution in Sofia on 31 December 2023 for 24 hours.”</strong>
-        <p>Invokes <code>replayPollution</code>; frontend animates CAQI-colored clouds hour by hour from PostgreSQL grid data.</p>
-      </div>
-      <div class="demo-step">
-        <strong>“Show the air-pollution forecast for Sofia for the next 24 hours.”</strong>
-        <p>Invokes <code>replayPrediction</code>; ML forecast grid rendered with the same CAQI cloud representation.</p>
-      </div>
-      <div class="demo-step">
-        <strong>“Tell me about this building. Who was its architect?”</strong>
-        <p>User selects National Palace of Culture; <code>wiki_pageid</code> from building metadata drives <code>getWikipediaSummary</code> + Qdrant retrieval.</p>
-      </div>
+      <p>
+        The sequence below follows a user exploring Sofia through natural-language requests.
+        Each step combines a different mix of data access, tool chaining, and visual feedback.
+      </p>
+      <ol class="walkthrough">
+        <li>
+          <div>
+            <span class="utterance">“Load the 3D model of Sofia, colored by walkability.”</span>
+            <p class="note"><code>loadTiles</code> followed by <code>setVisualizationStyle</code>—graduated colors from per-building walkability scores.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Which buildings have the worst walkability index? Color them purple.”</span>
+            <p class="note"><code>filterBuildings</code> with walkability threshold <code>&lt;30</code> and a purple highlight.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Show hospitals in red and schools in blue and also sensors.”</span>
+            <p class="note">OR-mode <code>filterBuildings</code> (healthcare / schools) plus <code>loadSensors</code> map pins.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Are there any elevated sensors around this building?”</span>
+            <p class="note"><code>filterSensors</code> with <code>nearPoint</code> and <code>elevatedOnly=true</code>, using the selected building’s coordinates.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Remove the filter and sensors.”</span>
+            <p class="note"><code>filterBuildings</code> with <code>filterType=none</code> and <code>removeSensors</code>.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Replay PM10 pollution on 31 December 2023 for 24 hours.”</span>
+            <p class="note"><code>replayPollution</code> (<code>parameter=PM10</code>)—CAQI-colored clouds animated hour by hour.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Now show the next 24-hour forecast.”</span>
+            <p class="note"><code>replayPrediction</code>—ML forecast grid with the same cloud representation.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Remove the clouds.”</span>
+            <p class="note"><code>clearPollutionClouds</code> clears the animated overlay.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <span class="utterance">“Tell me about this building. Who was the architect?”</span>
+            <p class="note">Selected-building <code>wiki_pageid</code> drives <code>getWikipediaSummary</code> and Qdrant retrieval (e.g. National Palace of Culture).</p>
+          </div>
+        </li>
+      </ol>
     </section>
 
-    <!-- Acknowledgments -->
     <section id="funding">
       <h2>Acknowledgments</h2>
-      <p>
-        This research is supported by the GATE project, which is funded by the
-        Horizon 2020 WIDESPREAD-2018-2020 TEAMING Phase 2 programme under grant
-        agreement no.&nbsp;857155, and the programme &ldquo;Research, Innovation and
-        Digitalisation for Smart Transformation&rdquo; 2021&ndash;2027 (PRIDST) under grant
-        agreement no.&nbsp;BG16RFPR002-1.014-0010-C01 and DS4SSCC-DEP project, funded
-        by the European Union Digital Europe Work Programme 2021&ndash;2022 under Grant
-        Agreement no.&nbsp;101123342.
+      <p class="ack">
+        This research is supported by the GATE project, which is funded by the Horizon 2020 WIDESPREAD-2018-2020 TEAMING Phase 2 programme under grant agreement no.857155, and the programme “Research, Innovation and Digitalisation for Smart Transformation” 2021-2027 (PRIDST) under grant agreement no. BG16RFPR002-1.014-0010-C01 and GENeCITY project, funded by the Horizon Europe Programme under Grant Agreement no. 101270173.
       </p>
     </section>
 
-  </div>
+  </article>
 
   <footer>
-    <p>
-      <strong>Authors:</strong>
-    </p>
-    <p>
-      Big Data for Smart Society Institute (GATE), Sofia University &ldquo;St. Kliment Ohridski&rdquo;, Sofia, Bulgaria
-    </p>
-    <p>
-      <a href="mailto:ensiye.kiyamousavi@gate-ai.eu">Contact</a> ·
-      <a id="footer-github" href="https://github.com/ensiyeKiya/CityBot">GitHub</a> ·
-      <a href="https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/view?usp=sharing" target="_blank" rel="noopener">Demo Video</a>
-    </p>
-    <p style="margin-top:1rem; opacity:0.7;">&copy; GATE Institute — All rights reserved to the authors.</p>
+    <p>© 2026 The authors. All rights reserved.</p>
+    <p>Unpublished work provided for confidential review. No reuse, redistribution, or derivative use is permitted without the authors’ written permission.</p>
   </footer>
-
-  <script>
-    const githubBtn = document.getElementById('github-btn');
-    const footerGithub = document.getElementById('footer-github');
-    const liveDemoBtn = document.getElementById('live-demo-btn');
-    const footerDemo = document.getElementById('footer-demo');
-    if (githubBtn) githubBtn.href = 'https://github.com/ensiyeKiya/CityBot';
-    if (footerGithub) footerGithub.href = 'https://github.com/ensiyeKiya/CityBot';
-    if (liveDemoBtn) liveDemoBtn.href = 'https://chatbot.gate-ai.eu';
-    if (footerDemo) footerDemo.href = 'https://chatbot.gate-ai.eu';
-  </script>
-
 </body>
 </html>

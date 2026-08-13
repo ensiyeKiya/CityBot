@@ -1,26 +1,38 @@
-# CityBot: Talking to and Steering an Urban Digital Twin
+# CityBot: A Conversational Agent for an Interactive Urban Digital Twin
 
 **Demo paper — IEEE International Conference on Big Data (IEEE BigData 2026)**  
 December 14–17, 2026 · Phoenix, AZ, USA
 
-CityBot is a conversational interface for exploring **Sofia, Bulgaria**’s urban digital twin. Built on the [W3C Web of Things (WoT)](https://www.w3.org/TR/wot-thing-description/), it exposes heterogeneous city data as typed WoT actions. A large language model maps free-form requests to those actions; a **Cesium.js** frontend renders navigation, semantic building filters, pollution replay, and forecast visualizations on an interactive 3D globe.
+S. Ensiye Kiyamousavi<sup>1,2</sup>, Boris Kraychev<sup>1</sup>, Evgeny Shirinyan<sup>1</sup>, Plamena Krasteva<sup>1</sup>, Stoyan Nikolov<sup>1</sup>, Dessislava Petrova-Antonova<sup>1</sup>, Jan Bosch<sup>2</sup>, Helena Holmström Olsson<sup>3</sup>
+
+<sup>1</sup> Big Data for Smart Society Institute (GATE), Sofia University “St. Kliment Ohridski”, Sofia, Bulgaria  
+<sup>2</sup> Eindhoven University of Technology, Eindhoven, The Netherlands  
+<sup>3</sup> Malmö University, Malmö, Sweden
 
 | | |
 |---|---|
 | **Project website** | https://ensiyeKiya.github.io/CityBot/ |
-| **Demo video** | https://drive.google.com/file/d/1MRbgV6DzjyMyLMXZdkv8f5_yNHTpm7a8/view |
-| **Source code** | https://github.com/ensiyeKiya/CityBot |
+| **Demo video** | https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing |
+| **Contact** | [ensiye.kiyamousavi@gate-ai.eu](mailto:ensiye.kiyamousavi@gate-ai.eu) |
 
 ---
 
 ## Overview
 
-Urban digital twins integrate geospatial, environmental, and semantic data, but their use often remains limited to experts operating GIS tools, domain-specific APIs, or bespoke dashboards. CityBot lowers this barrier with a **WoT-grounded conversational interface** that exposes Sofia’s digital twin as a machine-readable affordance catalog over HTTP and MQTT.
+Urban Digital Twins (UDT) integrate heterogeneous geospatial, environmental, and semantic data with varying spatial and temporal resolutions, but their use often remains limited to experts who operate GIS tools, domain-specific APIs, or bespoke dashboards. CityBot is a conversational user interface for exploring the UDT of **Sofia, Bulgaria**.
 
-Building on a WoT-based architecture for integrating LLM agents with heterogeneous systems ([Kiyamousavi et al., 2025](https://github.com/ensiyeKiya/CityBot)), CityBot maintains **bidirectional synchronization** between dialogue and the live 3D environment: LLM-selected actions update the Cesium.js globe, while camera and building selection state ground subsequent user requests.
+Building on a WoT-based architecture for integrating LLM agents with heterogeneous systems, CityBot develops an urban-specific affordance model that exposes **six resources**: a semantic 3D city model, historical air-quality data, ML-based pollution forecasts, a multi-operator environmental sensor network, Wikipedia-grounded building knowledge, and live weather and geocoding services. An LLM maps free-form requests to typed WoT actions, while a **Cesium.js** frontend renders navigation, semantic filtering, pollution replay, and forecast visualizations on an interactive 3D globe.
+
+**Contributions**
+
+- An LLM agent for natural-language interaction with a UDT, implemented through a WoT-based affordance model for navigation, semantic building interaction, environmental queries, historical pollution replay, and forecast visualization.
+- A six-resource integration spanning a semantic 3D city model, historical air quality, pollution forecasts, a multi-operator environmental sensor network, Wikipedia-grounded building knowledge, live weather, and geocoding services.
+- A bidirectionally synchronized conversational interface in which LLM-selected actions update the Cesium globe, while camera and building state context ground subsequent user requests.
 
 ---
 
 ## License
 
-All rights reserved to the authors.
+© 2026 The authors. All rights reserved.
+
+Unpublished work provided for confidential review. No reuse, redistribution, or derivative use is permitted without the authors’ written permission.
