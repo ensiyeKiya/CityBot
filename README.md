@@ -1,19 +1,21 @@
 # CityBot: A Conversational Agent for an Interactive Urban Digital Twin
 
-**Demo paper — IEEE International Conference on Big Data (IEEE BigData 2026)**  
-December 14–17, 2026 · Phoenix, AZ, USA
+> **Status:** Submitted and under review.  
+> **Venue:** Demo paper — IEEE International Conference on Big Data (IEEE BigData 2026), December 14–17, 2026, Phoenix, AZ, USA.
 
-S. Ensiye Kiyamousavi<sup>1,2</sup>, Boris Kraychev<sup>1</sup>, Evgeny Shirinyan<sup>1</sup>, Plamena Krasteva<sup>1</sup>, Stoyan Nikolov<sup>1</sup>, Dessislava Petrova-Antonova<sup>1</sup>, Jan Bosch<sup>2</sup>, Helena Holmström Olsson<sup>3</sup>
+S. Ensiye Kiyamousavi1,2, Boris Kraychev1, Evgeny Shirinyan1, Plamena Krasteva1, Stoyan Nikolov1, Dessislava Petrova-Antonova1, Jan Bosch2, Helena Holmström Olsson3
 
-<sup>1</sup> Big Data for Smart Society Institute (GATE), Sofia University “St. Kliment Ohridski”, Sofia, Bulgaria  
-<sup>2</sup> Eindhoven University of Technology, Eindhoven, The Netherlands  
-<sup>3</sup> Malmö University, Malmö, Sweden
+1 Big Data for Smart Society Institute (GATE), Sofia University “St. Kliment Ohridski”, Sofia, Bulgaria  
+2 Eindhoven University of Technology, Eindhoven, The Netherlands  
+3 Malmö University, Malmö, Sweden
 
-| | |
-|---|---|
-| **Project website** | https://ensiyeKiya.github.io/CityBot/ |
-| **Demo video** | https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing |
-| **Contact** | [ensiye.kiyamousavi@gate-ai.eu](mailto:ensiye.kiyamousavi@gate-ai.eu) |
+
+|                     |                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Project website** | [https://ensiyeKiya.github.io/CityBot/](https://ensiyeKiya.github.io/CityBot/)                                                                                           |
+| **Demo video**      | [https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing](https://drive.google.com/file/d/1pBVcRwa22TLk2tUGuEnFIg_jPMBPO1Wa/view?usp=sharing) |
+| **Contact**         | [ensiye.kiyamousavi@gate-ai.eu](mailto:ensiye.kiyamousavi@gate-ai.eu)                                                                                                    |
+
 
 ---
 
@@ -21,7 +23,7 @@ S. Ensiye Kiyamousavi<sup>1,2</sup>, Boris Kraychev<sup>1</sup>, Evgeny Shirinya
 
 Urban Digital Twins (UDT) integrate heterogeneous geospatial, environmental, and semantic data with varying spatial and temporal resolutions, but their use often remains limited to experts who operate GIS tools, domain-specific APIs, or bespoke dashboards. CityBot is a conversational user interface for exploring the UDT of **Sofia, Bulgaria**.
 
-Building on a WoT-based architecture for integrating LLM agents with heterogeneous systems, CityBot develops an urban-specific affordance model that exposes **six resources**: a semantic 3D city model, historical air-quality data, ML-based pollution forecasts, a multi-operator environmental sensor network, Wikipedia-grounded building knowledge, and live weather and geocoding services. An LLM maps free-form requests to typed WoT actions, while a **Cesium.js** frontend renders navigation, semantic filtering, pollution replay, and forecast visualizations on an interactive 3D globe.
+Building on a WoT-based architecture for integrating LLM agents with heterogeneous systems, CityBot develops an urban-specific affordance model that exposes **six resources**: a semantic 3D city model, historical air-quality data, ML-based pollution forecasts, a multi-operator environmental sensor network, Wikipedia-grounded building knowledge, and live weather and geocoding services. An LLM maps free-form requests to typed WoT actions, while a **Cesium** frontend renders navigation, semantic filtering, pollution replay, and forecast visualizations on an interactive 3D globe.
 
 **Contributions**
 
