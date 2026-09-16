@@ -12,6 +12,7 @@ import {
   listAvailableCities
 } from '../airQualityDB';
 import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
+import { createHash } from 'crypto';
 
 const TITLE = 'airquality';
 
@@ -244,6 +245,8 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       await emitEvent('pollutionReplay', {
         action: 'start',
         userId,
+        requestId: input?._requestId ?? null,
+        toolCallId: input?._toolCallId ?? null,
         gridPoints: gridPoints.map((gp: any) => ({
           id: gp.id,
           latitude: Number(gp.latitude),
@@ -267,6 +270,22 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         gridPointCount: replayData.gridPointCount,
         startDate,
         endDate: endHour,
+        uiEffect: { needsAck: true, timeoutMs: 10000, summary: `Render historical ${parameter} replay` },
+        _evaluationEvidence: {
+          type: 'pollution-replay',
+          replayType: 'historical',
+          parameter,
+          startDate,
+          endDate: endHour,
+          hoursReturned: replayData.hoursReturned,
+          gridPointCount: replayData.gridPointCount,
+          gridPointIds: gridPoints.map((point: any) => point.id),
+          frameDigests: replayData.hours.map((frame: any) => ({
+            hour: frame.hour,
+            valueCount: Array.isArray(frame.values) ? frame.values.length : 0,
+            sha256: createHash('sha256').update(JSON.stringify(frame.values ?? [])).digest('hex')
+          }))
+        }
       };
     } catch (error) {
       console.error("❌ Error in replayPollution handler:", error);
@@ -326,6 +345,8 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       await emitEvent('pollutionReplay', {
         action: 'start',
         userId,
+        requestId: input?._requestId ?? null,
+        toolCallId: input?._toolCallId ?? null,
         isPrediction: true,
         model: predictionData.model,
         gridPoints: gridPoints.map((gp: any) => ({
@@ -352,6 +373,23 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
         gridPointCount: predictionData.gridPointCount,
         startDate: predictionData.startDate,
         endDate: predictionData.endDate,
+        uiEffect: { needsAck: true, timeoutMs: 10000, summary: 'Render PM10 prediction replay' },
+        _evaluationEvidence: {
+          type: 'pollution-replay',
+          replayType: 'prediction',
+          model: predictionData.model,
+          parameter: 'PM10',
+          startDate: predictionData.startDate,
+          endDate: predictionData.endDate,
+          hoursReturned: predictionData.hoursReturned,
+          gridPointCount: predictionData.gridPointCount,
+          gridPointIds: gridPoints.map((point: any) => point.id),
+          frameDigests: predictionData.hours.map((frame: any) => ({
+            hour: frame.hour,
+            valueCount: Array.isArray(frame.values) ? frame.values.length : 0,
+            sha256: createHash('sha256').update(JSON.stringify(frame.values ?? [])).digest('hex')
+          }))
+        }
       };
     } catch (error) {
       console.error("❌ Error in replayPrediction handler:", error);
@@ -372,8 +410,15 @@ export async function exposeAirQualityThing(WoT: any, options: AirQualityThingOp
       await emitEvent('pollutionReplay', {
         action: 'stop',
         userId,
+        requestId: input?._requestId ?? null,
+        toolCallId: input?._toolCallId ?? null,
         timestamp: new Date().toISOString(),
-      });      return { success: true, message: 'Pollution clouds cleared from the map.' };
+      });      return {
+        success: true,
+        message: 'Pollution clouds cleared from the map.',
+        uiEffect: { needsAck: true, timeoutMs: 5000, summary: 'Remove pollution clouds' },
+        _evaluationEvidence: { type: 'pollution-clear', requested: true }
+      };
     } catch (error) {
       console.error("❌ Error in clearPollutionClouds handler:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);

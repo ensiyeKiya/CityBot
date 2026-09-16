@@ -23,7 +23,7 @@ import cors from "cors";
 import { Request, Response } from 'express';
 import { MqttClientFactory, MqttBrokerServer } from '@node-wot/binding-mqtt';
 import { authenticateUser, createUser, initializeDefaultUser } from './auth';
-import { initializeDatabase, getDatabaseClient, saveChatMessage, getChatHistory, clearUserChatHistory, getUserSessions, getSessionMessages, saveConversationTrace, saveUserFeedback, ConversationTrace, TraceStep } from './database';
+import { initializeDatabase, getDatabaseClient, saveChatMessage, getChatHistory, clearUserChatHistory, getUserSessions, getSessionMessages, saveConversationTrace, getConversationTracesForUser, saveUserFeedback, ConversationTrace, TraceStep } from './database';
 import { THING_IDS } from './things/shared';
 import { createHash } from 'crypto';
 import { RequestActivity } from './requestActivity';
@@ -606,6 +606,7 @@ async function main() {
   const perUserSelectedBuilding = new Map<string, SelectedBuildingState>();
   const sessionOwners = new Map<string, number>();
   const requestActivity = new RequestActivity();
+  const latestResetReceiptByUser = new Map<number, any>();
 
   function userContextKey(userId: number | string | null | undefined): string {
     if (userId == null || userId === '') return 'anonymous';
@@ -1173,6 +1174,7 @@ async function main() {
   }>();
   // Reports that arrived before a waiter was registered (race with fast clients)
   const earlyUiStatusReports = new Map<string, UiStatusReport>();
+  const uiStatusReportsByRequestId = new Map<string, UiStatusReport[]>();
 
   function waitForUiStatus(toolCallId: string, timeoutMs = 3000): Promise<UiStatusReport | null> {
     const early = earlyUiStatusReports.get(toolCallId);
@@ -1351,9 +1353,11 @@ async function main() {
     if (missing.length) throw new Error(`${domain} tools missing from model catalogue: ${missing.join(', ')}`);
   }
   const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+  const gatewaySha256 = hash(fs.readFileSync(__filename, 'utf8'));
   const runtimeManifest = {
-    buildId: process.env.CITYBOT_BUILD_ID || 'unversioned',
-    gatewaySha256: hash(fs.readFileSync(__filename, 'utf8')),
+    buildId: process.env.CITYBOT_BUILD_ID || `artifact-${gatewaySha256.slice(0, 16)}`,
+    sourceRevision: process.env.CITYBOT_SOURCE_REVISION || process.env.GIT_COMMIT || null,
+    gatewaySha256,
     startedAt: new Date().toISOString(),
     model: model_name, parameters: { temperature, max_tokens },
     toolCatalogueSha256: hash(JSON.stringify(toolSpecs)),
@@ -1389,6 +1393,12 @@ async function main() {
       const startTime = Date.now();
 
       const { mapState: userMapState, building: userSelectedBuilding } = syncContextFromClientInput(userKey, input);
+      const resetReceiptSnapshot = latestResetReceiptByUser.get(userId) ?? null;
+      const initialContextSnapshot = {
+        mapState: userMapState,
+        selectedBuilding: userSelectedBuilding,
+        sessionId
+      };
 
       // Conversation context (scoped to this user)
       const systemPrompt = loadSystemPrompt(userMapState, userSelectedBuilding);
@@ -1590,8 +1600,16 @@ async function main() {
         tools_used: toolsUsed,
         planning_turns: planningTurns,
         processing_time_ms: Date.now() - startTime,
-        model_name: model_name ?? ''
+        model_name: model_name ?? '',
+        model_parameters: { temperature, max_tokens },
+        offered_tools: toolSpecs,
+        runtime_manifest: runtimeManifest,
+        reset_receipt: resetReceiptSnapshot,
+        initial_context: initialContextSnapshot,
+        ui_reports: uiStatusReportsByRequestId.get(requestId) ?? [],
+        status: 'completed'
       });
+      uiStatusReportsByRequestId.delete(requestId);
 
       return {
         response: finalContent,
@@ -1643,6 +1661,12 @@ async function main() {
       const startTime = Date.now();
 
       const { mapState: userMapState, building: userSelectedBuilding } = syncContextFromClientInput(userKey, input);
+      const resetReceiptSnapshot = latestResetReceiptByUser.get(userId) ?? null;
+      const initialContextSnapshot = {
+        mapState: userMapState,
+        selectedBuilding: userSelectedBuilding,
+        sessionId
+      };
 
       // Build conversation with system prompt + history + new message
       const systemPrompt = loadSystemPrompt(userMapState, userSelectedBuilding);      
@@ -1907,39 +1931,50 @@ async function main() {
               
               const toolStart = Date.now();
               const result = await invokeDomainAction(toolName, enrichedArgs);
-                  const toolElapsed = Date.now() - toolStart;
-                  const rawResult = typeof result?.value === 'function' ? await result.value() : result;
+              const toolElapsed = Date.now() - toolStart;
+              const rawResult = typeof result?.value === 'function' ? await result.value() : result;
 
-                  console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(rawResult, 300)}`);
-                  if (rawResult?.uiEffect?.needsAck && !rawResult?.error) {
-                    emitLLMEvent(userId, 'conversationStream', {
-                      requestId,
-                      token: '',
-                      isFinal: false,
-                      metadata: {
-                        planningUpdate: `⏳ Waiting for UI to apply ${toolName}...`,
-                        toolExecution: toolName
-                      }
-                    });
+              // Large identifier/state evidence belongs in the persisted study
+              // trace, not in the model context where it would consume tokens.
+              const evaluationEvidence = rawResult?._evaluationEvidence;
+              const modelVisibleResult = rawResult && typeof rawResult === 'object'
+                ? { ...rawResult }
+                : rawResult;
+              if (modelVisibleResult && typeof modelVisibleResult === 'object') {
+                delete modelVisibleResult._evaluationEvidence;
+              }
+
+              console.log(`🔧 [${requestId}] ${toolName} done in ${toolElapsed}ms result=${logPreview(rawResult, 300)}`);
+              if (modelVisibleResult?.uiEffect?.needsAck && !modelVisibleResult?.error) {
+                emitLLMEvent(userId, 'conversationStream', {
+                  requestId,
+                  token: '',
+                  isFinal: false,
+                  metadata: {
+                    planningUpdate: `⏳ Waiting for UI to apply ${toolName}...`,
+                    toolExecution: toolName
                   }
-                  const toolResult = await enrichToolResultWithUiStatus(toolName, toolCall.id, rawResult, requestId);
+                });
+              }
+              const toolResult = await enrichToolResultWithUiStatus(toolName, toolCall.id, modelVisibleResult, requestId);
 
-                  // Add tool result to conversation (includes uiStatus when available)
-                  conversation.push({
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    name: toolName,
-                    content: JSON.stringify(toolResult)
-                  });
+              // Add tool result to conversation (includes uiStatus when available)
+              conversation.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                name: toolName,
+                content: JSON.stringify(toolResult)
+              });
 
-                  // Record in trace
-                  currentTraceStep?.tool_results.push({
-                    tool_call_id: toolCall.id,
-                    name: toolName,
-                    args,
-                    result: toolResult,
-                    time_ms: toolElapsed
-                  });
+              // Record in trace
+              currentTraceStep?.tool_results.push({
+                tool_call_id: toolCall.id,
+                name: toolName,
+                args,
+                result: toolResult,
+                time_ms: toolElapsed,
+                ...(evaluationEvidence ? { evaluation_evidence: evaluationEvidence } : {})
+              });
                   
                 } catch (err) {
                   console.error(`❌ [${requestId}] tool ${toolName} error:`, err);
@@ -2172,10 +2207,17 @@ async function main() {
             planning_turns: planningTurn, processing_time_ms: Date.now() - startTime,
             model_name: model_name ?? '', model_parameters: { temperature, max_tokens },
             offered_tools: toolSpecs,
+            runtime_manifest: runtimeManifest,
+            reset_receipt: resetReceiptSnapshot,
+            initial_context: initialContextSnapshot,
+            ui_reports: uiStatusReportsByRequestId.get(requestId) ?? [],
             status: terminalError ? (/timeout|timed out|abort/i.test(errorMessage) ? 'timed_out' : 'failed') : 'completed',
             ...(terminalError ? { error: { message: errorMessage, stack: terminalError?.stack } } : {})
           };
-          try { await saveConversationTrace(trace); }
+          try {
+            await saveConversationTrace(trace);
+            uiStatusReportsByRequestId.delete(requestId);
+          }
           catch (error) { console.error(`[${requestId}] trace persistence failed:`, error); }
           finally { endRequest(); }
         }
@@ -2421,6 +2463,15 @@ async function main() {
         timestamp: new Date().toISOString()
       };
 
+      if (report.requestId) {
+        const reports = uiStatusReportsByRequestId.get(report.requestId) ?? [];
+        reports.push(report);
+        uiStatusReportsByRequestId.set(report.requestId, reports);
+        if (reports.length === 1) {
+          setTimeout(() => uiStatusReportsByRequestId.delete(report.requestId!), 10 * 60 * 1000);
+        }
+      }
+
       console.log(
         `🖥️  UI status: user=${userId} kind=${report.kind} status=${report.status} ` +
         `toolCallId=${report.toolCallId ?? '-'} — ${report.summary}` +
@@ -2614,6 +2665,37 @@ async function main() {
     res.set('Cache-Control', 'no-store').json(runtimeManifest);
   });
 
+  // Authenticated, user-scoped export of immutable trace bundles.
+  app.get('/api/study/executions', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = sessionUserId(req);
+      if (userId == null) return res.status(401).json({ error: 'Invalid session' });
+      const requestId = typeof req.query.requestId === 'string' ? req.query.requestId.trim() : undefined;
+      const sinceText = typeof req.query.since === 'string' ? req.query.since.trim() : '';
+      const since = sinceText ? new Date(sinceText) : undefined;
+      if (since && Number.isNaN(since.getTime())) {
+        return res.status(400).json({ error: 'since must be an ISO timestamp' });
+      }
+      const requestedLimit = Number(req.query.limit ?? 20);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(requestedLimit, 100))
+        : 20;
+      const records = await getConversationTracesForUser(userId, {
+        requestId: requestId || undefined,
+        since,
+        limit
+      });
+      res.set('Cache-Control', 'no-store').json({
+        schemaVersion: 'citybot-study-bundle-v1',
+        exportedAt: new Date().toISOString(),
+        records
+      });
+    } catch (error) {
+      console.error('Study execution export failed:', error);
+      res.status(500).json({ error: 'Failed to export study executions' });
+    }
+  });
+
   /**
    * Returns a user-scoped City Model Thing Description where event MQTT topics
    * are rewritten to `smartbot/user/{userId}/events/{name}` (the per-user
@@ -2803,11 +2885,19 @@ async function main() {
     perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());
     perUserMapState.set(userKey, DEFAULT_MAP_STATE());
     for (const [id, report] of earlyUiStatusReports) if (report.userId === userId) earlyUiStatusReports.delete(id);
-    res.json({ success: true, reset: {
-      timestamp: new Date().toISOString(), selectedBuilding: getUserSelectedBuilding(userKey),
+    const resetReceipt = {
+      resetId: `reset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      timestamp: new Date().toISOString(),
+      buildId: runtimeManifest.buildId,
+      selectedBuilding: getUserSelectedBuilding(userKey),
       mapState: getUserMapState(userKey), conversation: 'new browser session',
       sceneReset: 'requires fresh page', externalData: 'live; not reset'
-    }});
+    };
+    latestResetReceiptByUser.set(userId, resetReceipt);
+    for (const [requestId, reports] of uiStatusReportsByRequestId) {
+      if (reports.some((report) => report.userId === userId)) uiStatusReportsByRequestId.delete(requestId);
+    }
+    res.json({ success: true, reset: resetReceipt });
   });
 
   // Serve the login page

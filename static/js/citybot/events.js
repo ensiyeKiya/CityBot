@@ -648,10 +648,23 @@ window.subscribeToWoTEvents = async function() {
               appliedResult: payload.appliedResult || null
             }
           };
+          const readEntityProperty = (entity, name) => {
+            const property = entity?.properties?.[name];
+            return typeof property?.getValue === 'function'
+              ? property.getValue(window.viewer.clock.currentTime)
+              : (property ?? null);
+          };
+          const sensorStateEvidence = () => window.sensorEntities.map((entity) => ({
+            id: readEntityProperty(entity, 'object') || readEntityProperty(entity, 'station_name'),
+            operator: readEntityProperty(entity, 'operator'),
+            measuredAt: readEntityProperty(entity, 'date_measured'),
+            visible: entity.show !== false
+          }));
           
           try {
             if (payload.action === 'remove') {
               // Remove all sensor entities
+              const removedSensors = sensorStateEvidence();
               window.sensorEntities.forEach(entity => {
                 window.viewer.entities.remove(entity);
               });
@@ -661,7 +674,8 @@ window.subscribeToWoTEvents = async function() {
               window.reportUiStatus({
                 ...sensorsAckBase,
                 status: 'applied',
-                summary: payload.appliedResult?.description || 'Removed sensor pins from map'
+                summary: payload.appliedResult?.description || 'Removed sensor pins from map',
+                details: { ...sensorsAckBase.details, removedSensors, sensorCount: 0, visibleSensorIds: [] }
               });
             } else if (payload.action === 'load') {
               // Load sensors from backend data              
@@ -746,7 +760,9 @@ window.subscribeToWoTEvents = async function() {
                   || `Loaded ${window.sensorEntities.length} sensor pins on map`,
                 details: {
                   ...sensorsAckBase.details,
-                  sensorCount: window.sensorEntities.length
+                  sensorCount: window.sensorEntities.length,
+                  sensors: sensorStateEvidence(),
+                  visibleSensorIds: sensorStateEvidence().filter((sensor) => sensor.visible).map((sensor) => sensor.id)
                 }
               });
             } else if (payload.action === 'filter') {
@@ -804,6 +820,7 @@ window.subscribeToWoTEvents = async function() {
               
               const visibleCount = window.sensorEntities.filter(e => e.show).length;
               const totalCount = window.sensorEntities.length;
+              const stateEvidence = sensorStateEvidence();
               const filterSummary = payload.appliedResult?.description
                 || `Filtered sensors; ${visibleCount} visible`;
               const summaryWithCount = visibleCount === totalCount
@@ -817,7 +834,9 @@ window.subscribeToWoTEvents = async function() {
                   ...sensorsAckBase.details,
                   visibleCount,
                   totalCount,
-                  parameter: filterParameter
+                  parameter: filterParameter,
+                  sensors: stateEvidence,
+                  visibleSensorIds: stateEvidence.filter((sensor) => sensor.visible).map((sensor) => sensor.id)
                 }
               });
             }
@@ -864,8 +883,15 @@ window.subscribeToWoTEvents = async function() {
           }
           if (payload.userId != null && payload.userId !== window.currentUserId) return;
 
+          const ackBase = {
+            requestId: payload.requestId || null,
+            toolCallId: payload.toolCallId || null,
+            kind: 'pollution',
+          };
+
           try {
             if (payload.action === 'stop') {
+              const hadClouds = !!window.pollutionClouds;
               if (window.pollutionReplayTimer) {
                 clearInterval(window.pollutionReplayTimer);
                 window.pollutionReplayTimer = null;
@@ -873,7 +899,15 @@ window.subscribeToWoTEvents = async function() {
               if (window.pollutionClouds && window.viewer.scene.primitives.contains(window.pollutionClouds)) {
                 window.viewer.scene.primitives.remove(window.pollutionClouds);
               }
-              window.pollutionClouds = null;              return;
+              window.pollutionClouds = null;
+              window.currentPollutionState = null;
+              window.reportUiStatus({
+                ...ackBase,
+                status: 'applied',
+                summary: hadClouds ? 'Pollution clouds removed from map' : 'No pollution clouds remained on map',
+                details: { action: 'stop', hadClouds, cloudCount: 0, replayActive: false }
+              });
+              return;
             }
 
             if (payload.action === 'start' && payload.gridPoints && payload.hours) {
@@ -944,10 +978,37 @@ window.subscribeToWoTEvents = async function() {
               // Paint first frame immediately, then start interval
               paintFrame();
               window.pollutionReplayTimer = setInterval(paintFrame, intervalMs);
-              const label = payload.isPrediction ? `Prediction replay (${payload.model || 'unknown model'})` : 'Pollution replay';            }
+              const label = payload.isPrediction ? `Prediction replay (${payload.model || 'unknown model'})` : 'Pollution replay';
+              window.currentPollutionState = {
+                replayType,
+                parameter: replayParameter,
+                startDate: payload.startDate || hoursData[0]?.hour || null,
+                endDate: hoursData[hoursData.length - 1]?.hour || null,
+                hoursCount: hoursData.length,
+                cloudCount: clouds.length,
+                frameIndex,
+                active: true
+              };
+              window.reportUiStatus({
+                ...ackBase,
+                status: 'applied',
+                summary: `${label} rendered with ${clouds.length} clouds and ${hoursData.length} frames`,
+                details: {
+                  action: 'start',
+                  ...window.currentPollutionState,
+                  gridPointIds: payload.gridPoints.map((point) => point.id)
+                }
+              });
+            }
 
           } catch (error) {
             console.error('❌ Error handling pollutionReplay:', error);
+            window.reportUiStatus({
+              ...ackBase,
+              status: 'failed',
+              summary: `Failed to apply pollution replay: ${error.message || String(error)}`,
+              details: { action: payload.action, replayType }
+            });
           }
         };
 

@@ -4,6 +4,7 @@
  */
 
 import { Pool } from 'pg';
+import { createHash } from 'crypto';
 
 // Database connection configuration
 const DB_CONFIG = {
@@ -220,6 +221,45 @@ export async function countBuildingsMatching(conditions: BuildingFilterCondition
     return result.rows[0]?.count ?? 0;
   } catch (error) {
     console.error('Error counting buildings for filter:', error, conditions);
+    return null;
+  }
+}
+
+/**
+ * Stable identifier evidence for a building filter. This is kept out of the
+ * model context and written only to the study trace.
+ */
+export async function listBuildingIdsMatching(
+  conditions: BuildingFilterCondition[],
+  limit = 50000
+): Promise<{ ids: string[]; total: number; truncated: boolean; sha256: string } | null> {
+  if (!conditions.length) return { ids: [], total: 0, truncated: false, sha256: createHash('sha256').update('[]').digest('hex') };
+  const client = getDatabaseClient();
+  const where: string[] = [];
+  const params: any[] = [];
+  try {
+    for (const c of conditions) {
+      appendBuildingFilterCondition(where, params, c.filterType, c.filterValue);
+    }
+    params.push(Math.max(1, Math.min(limit, 50000)));
+    const result = await client.query(
+      `SELECT gml_id, COUNT(*) OVER()::int AS total
+       FROM buildings
+       WHERE ${where.join(' AND ')}
+       ORDER BY gml_id NULLS LAST
+       LIMIT $${params.length}`,
+      params
+    );
+    const total = result.rows[0]?.total ?? 0;
+    const ids = result.rows.map((row) => row.gml_id == null ? '<missing-gml-id>' : String(row.gml_id));
+    return {
+      ids,
+      total,
+      truncated: total > ids.length,
+      sha256: createHash('sha256').update(JSON.stringify(ids)).digest('hex')
+    };
+  } catch (error) {
+    console.error('Error listing building identifiers for filter:', error, conditions);
     return null;
   }
 }
@@ -1162,7 +1202,7 @@ export interface TraceStep {
   /** Separate chain-of-thought field returned by reasoning models (e.g. Qwen-thinking) */
   reasoning_content: string | null;
   tool_calls: Array<{ id: string; name: string; args: any }>;
-  tool_results: Array<{ tool_call_id: string; name: string; args: any; result: any; time_ms: number }>;
+  tool_results: Array<{ tool_call_id: string; name: string; args: any; result: any; time_ms: number; evaluation_evidence?: any }>;
   tokens_used: number | null;
   time_ms: number;
 }
@@ -1185,6 +1225,10 @@ export interface ConversationTrace {
   error?: { message: string; stack?: string };
   model_parameters?: { temperature?: number; max_tokens?: number };
   offered_tools?: unknown[];
+  runtime_manifest?: unknown;
+  reset_receipt?: unknown;
+  initial_context?: unknown;
+  ui_reports?: unknown[];
 }
 
 export async function saveConversationTrace(trace: ConversationTrace): Promise<void> {
@@ -1214,6 +1258,38 @@ export async function saveConversationTrace(trace: ConversationTrace): Promise<v
     console.error('Error saving conversation trace:', error);
     throw error;
   }
+}
+
+export async function getConversationTracesForUser(
+  userId: number,
+  options: { requestId?: string; since?: Date; limit?: number } = {}
+): Promise<Array<{ request_id: string; created_at: string; trace: ConversationTrace }>> {
+  assertValidUserId(userId, 'getConversationTracesForUser');
+  const client = getDatabaseClient();
+  const where = ['user_id = $1'];
+  const params: any[] = [userId];
+  if (options.requestId) {
+    params.push(options.requestId);
+    where.push(`request_id = $${params.length}`);
+  }
+  if (options.since) {
+    params.push(options.since);
+    where.push(`created_at >= $${params.length}`);
+  }
+  params.push(Math.max(1, Math.min(options.limit ?? 20, 100)));
+  const result = await client.query(
+    `SELECT request_id, created_at, full_trace
+     FROM conversation_traces
+     WHERE ${where.join(' AND ')}
+     ORDER BY created_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => ({
+    request_id: String(row.request_id),
+    created_at: new Date(row.created_at).toISOString(),
+    trace: row.full_trace as ConversationTrace
+  }));
 }
 
 /**

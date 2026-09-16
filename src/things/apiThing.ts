@@ -885,6 +885,17 @@ export async function exposeApiThing(WoT: any): Promise<any> {
         summary: `Load ${loaded.sensorCount} sensor pins`
       };
 
+      const measurementKeys = ['PM10', 'PM2.5', 'PM1', 'T', 'p', 'RH', 'WD', 'WS', 'R', 'SI', 'CO', 'CO2', 'NO', 'NO2', 'SO2', 'O3', 'C6H6'];
+      const sensorEvidence = loaded.sensors.map((feature) => ({
+        id: String(feature.properties.object ?? feature.properties.station_name ?? ''),
+        operator: feature.properties.operator ?? null,
+        coordinates: feature.geometry.coordinates,
+        measuredAt: feature.properties.date_measured ?? null,
+        measurements: Object.fromEntries(measurementKeys
+          .filter((key) => feature.properties[key] !== undefined && feature.properties[key] !== null)
+          .map((key) => [key, feature.properties[key]]))
+      }));
+
       await emitEvent('sensorsChanged', {
         action: 'load',
         userId,
@@ -911,7 +922,11 @@ export async function exposeApiThing(WoT: any): Promise<any> {
           operator: loaded.operator,
           parameter: loaded.parameter
         },
-        uiEffect
+        uiEffect,
+        _evaluationEvidence: {
+          type: 'sensor-stations',
+          sensors: sensorEvidence
+        }
       };
     } catch (error) {
       console.error('Error in loadSensors handler:', error);

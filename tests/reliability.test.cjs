@@ -134,8 +134,10 @@ test('activity tracks overlapping requests and idempotent completion', () => {
   assert.equal(a.isActive(1), false);
 });
 
-async function runStream({ planningError, finalStreamError, persistenceError } = {}) {
+async function runStream({ planningError, finalStreamError, persistenceError, toolEvidence } = {}) {
   const traces = [], events = [], a = activity();
+  const modelInputs = [];
+  let planningCalls = 0;
   let complete;
   const done = new Promise(resolve => { complete = resolve; });
   const context = {
@@ -146,14 +148,26 @@ async function runStream({ planningError, finalStreamError, persistenceError } =
       begin(id) { const end = a.begin(id); return () => { end(); complete(); }; }
     },
     syncContextFromClientInput: () => ({ mapState: {}, building: {} }),
+    runtimeManifest: { buildId: 'artifact-test', gatewaySha256: 'abc' },
+    latestResetReceiptByUser: new Map([[1, { resetId: 'reset-test' }]]),
+    uiStatusReportsByRequestId: {
+      get: () => [{ kind: 'sensors', status: 'applied', details: { visibleSensorIds: ['A1'] } }],
+      delete() {}
+    },
     loadSystemPrompt: () => 'test prompt', loadUserHistory: async () => {}, getUserHistory: () => [],
     toModelMessages: x => x, getReusableConversationHistory: x => x, logPreview: String,
     toolSpecs: [{ function: { name: 'loadSensors' } }], model_name: 'test-model', temperature: 0, max_tokens: 100,
     emitLLMEvent: (_id, _type, payload) => events.push(payload),
     withOpenAiRetry: (_name, fn) => fn(),
+    invokeDomainAction: async () => ({ success: true, userMessage: 'Sensors loaded', _evaluationEvidence: toolEvidence }),
+    enrichToolResultWithUiStatus: async (_name, _id, result) => result,
     localModel: { chat: { completions: { create: async params => {
+      modelInputs.push(params);
       if (params.stream) throw finalStreamError;
       if (planningError) throw planningError;
+      if (toolEvidence && planningCalls++ === 0) {
+        return { choices: [{ message: { content: '', tool_calls: [{ id: 'tc1', function: { name: 'loadSensors', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] };
+      }
       return { choices: [{ message: { content: 'Please select a building.' }, finish_reason: 'stop' }] };
     } } } },
     formatUserFacingModelError: err => err.message,
@@ -170,7 +184,7 @@ async function runStream({ planningError, finalStreamError, persistenceError } =
   await done;
   assert.equal(a.isActive(1), false);
   assert.equal(traces.length, 1);
-  return { trace: traces[0], events };
+  return { trace: traces[0], events, modelInputs };
 }
 
 test('planning failure preserves input, model settings and offered tools', async () => {
@@ -180,6 +194,10 @@ test('planning failure preserves input, model settings and offered tools', async
   assert.equal(trace.planning_steps[0].input_messages.at(-1).content, 'Tell me about this building');
   assert.equal(trace.offered_tools[0].function.name, 'loadSensors');
   assert.equal(trace.model_parameters.temperature, 0);
+  assert.equal(trace.runtime_manifest.buildId, 'artifact-test');
+  assert.equal(trace.reset_receipt.resetId, 'reset-test');
+  assert.equal(trace.ui_reports[0].details.visibleSensorIds[0], 'A1');
+  assert.equal(trace.initial_context.sessionId, 'test');
 });
 test('planning timeout is retained as timed_out', async () => {
   const { trace } = await runStream({ planningError: new Error('Planning model call timeout after 60 seconds') });
@@ -202,8 +220,42 @@ test('a trace write failure still releases request activity', async () => {
   await runStream({ persistenceError: true });
 });
 
+test('evaluation evidence is persisted but omitted from model-visible tool results', async () => {
+  const evidence = { type: 'sensor-stations', sensors: [{ id: 'A1' }] };
+  const { trace, modelInputs } = await runStream({ toolEvidence: evidence });
+  assert.equal(trace.planning_steps[0].tool_results[0].evaluation_evidence.sensors[0].id, 'A1');
+  const modelPayload = JSON.stringify(modelInputs);
+  assert.ok(!modelPayload.includes('_evaluationEvidence'));
+  assert.ok(!modelPayload.includes('sensor-stations'));
+});
+
+test('study export is authenticated-user scoped and bounded', async () => {
+  let seen;
+  const exportHandler = vm.runInNewContext(handler('app', 'get', '/api/study/executions'), {
+    sessionUserId: () => 7,
+    getConversationTracesForUser: async (userId, options) => {
+      seen = { userId, options };
+      return [{ request_id: 'r1', created_at: '2026-09-16T00:00:00.000Z', trace: {} }];
+    },
+    console: quiet, Date, Number
+  });
+  const req = { query: { limit: '500', since: '2026-09-16T00:00:00Z' } };
+  const res = {
+    code: 200, headers: {}, status(code) { this.code = code; return this; },
+    set(name, value) { this.headers[name] = value; return this; },
+    json(body) { this.body = body; return this; }
+  };
+  await exportHandler(req, res);
+  assert.equal(seen.userId, 7);
+  assert.equal(seen.options.limit, 100);
+  assert.equal(res.body.schemaVersion, 'citybot-study-bundle-v1');
+  assert.equal(res.body.records[0].request_id, 'r1');
+  assert.equal(res.headers['Cache-Control'], 'no-store');
+});
+
 test('reset rejects in-flight work and then clears context without deleting archived chats', () => {
   const a = activity(), end = a.begin(1), map = new Map(), building = new Map(), owners = new Map([['old', 1]]);
+  const receipts = new Map();
   let cleared = false;
   const reset = vm.runInNewContext(handler('app', 'post', '/api/session/start'), {
     sessionUserId: () => 1, requestActivity: a, userContextKey: String,
@@ -211,7 +263,8 @@ test('reset rejects in-flight work and then clears context without deleting arch
     perUserSelectedBuilding: building, perUserMapState: map,
     EMPTY_SELECTED_BUILDING: () => ({ gmlId: null }), DEFAULT_MAP_STATE: () => ({ latitude: 42.6977 }),
     getUserSelectedBuilding: key => building.get(key), getUserMapState: key => map.get(key),
-    earlyUiStatusReports: new Map()
+    earlyUiStatusReports: new Map(), uiStatusReportsByRequestId: new Map(),
+    latestResetReceiptByUser: receipts, runtimeManifest: { buildId: 'artifact-test' }, Date, Math
   });
   const res = { code: 200, status(c) { this.code = c; return this; }, json(body) { this.body = body; return this; } };
   reset({}, res);
@@ -222,4 +275,6 @@ test('reset rejects in-flight work and then clears context without deleting arch
   assert.equal(cleared, true);
   assert.equal(owners.size, 0);
   assert.equal(res.body.reset.selectedBuilding.gmlId, null);
+  assert.equal(res.body.reset.buildId, 'artifact-test');
+  assert.equal(receipts.get(1).resetId, res.body.reset.resetId);
 });

@@ -9,7 +9,7 @@
 
 import { STYLE_DEFINITIONS, STYLE_NAMES, VALID_STYLES } from '../visualizationStyles';
 import { generateDynamicStyle, getDatabaseStatistics, BUILDING_CLASS_COLORS } from '../buildingVisualizationHelpers';
-import { countBuildingsMatching, queryBuildingsMatching } from '../database';
+import { countBuildingsMatching, listBuildingIdsMatching, queryBuildingsMatching } from '../database';
 import { resolveBuildingClass } from '../sofiaSensors';
 import { tracer, THING_IDS, SECURITY_SCHEME, createEmitEvent, httpForm, mqttEventForm } from './shared';
 
@@ -1505,6 +1505,19 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         description
       };
 
+      const identifierEvidence = await Promise.all(matchGroups.map(async (group, index) => {
+        const conditions = combineMode === 'AND'
+          ? [...resolvedFilters, ...sharedAndLegs]
+          : [resolvedFilters[index], ...sharedAndLegs];
+        return {
+          label: group.label,
+          filterType: group.filterType,
+          filterValue: group.filterValue,
+          color: group.color,
+          identifiers: await listBuildingIdsMatching(conditions)
+        };
+      }));
+
       try {
         await emitEvent('visualizationStyleChanged', {
           userId,
@@ -1533,7 +1546,12 @@ export async function exposeCityModelThing(WoT: any): Promise<any> {
         },
         facts,
         uiEffect,
-        appliedResult
+        appliedResult,
+        _evaluationEvidence: {
+          type: 'building-filter-identifiers',
+          combineMode,
+          groups: identifierEvidence
+        }
       };
     } catch (error) {
       console.error('Error in filterBuildings handler:', error);
