@@ -25,6 +25,8 @@ import { MqttClientFactory, MqttBrokerServer } from '@node-wot/binding-mqtt';
 import { authenticateUser, createUser, initializeDefaultUser } from './auth';
 import { initializeDatabase, getDatabaseClient, saveChatMessage, getChatHistory, clearUserChatHistory, getUserSessions, getSessionMessages, saveConversationTrace, saveUserFeedback, ConversationTrace, TraceStep } from './database';
 import { THING_IDS } from './things/shared';
+import { createHash } from 'crypto';
+import { RequestActivity } from './requestActivity';
 
 // Extend session data interface
 declare module 'express-session' {
@@ -603,6 +605,7 @@ async function main() {
   const perUserMapState = new Map<string, MapState>();
   const perUserSelectedBuilding = new Map<string, SelectedBuildingState>();
   const sessionOwners = new Map<string, number>();
+  const requestActivity = new RequestActivity();
 
   function userContextKey(userId: number | string | null | undefined): string {
     if (userId == null || userId === '') return 'anonymous';
@@ -1341,10 +1344,27 @@ async function main() {
     }));
   });
   if (toolSpecs.length !== actionToThing.size) {
-    console.warn(`⚠️ toolSpecs count (${toolSpecs.length}) ≠ action registry (${actionToThing.size})`);
+    throw new Error(`Tool catalogue does not match action registry (${toolSpecs.length} versus ${actionToThing.size})`);
   }
+  for (const [domain, expected] of Object.entries(EXPECTED_DOMAIN_ACTIONS)) {
+    const missing = expected.filter(name => !toolSpecs.some(tool => tool.function.name === name));
+    if (missing.length) throw new Error(`${domain} tools missing from model catalogue: ${missing.join(', ')}`);
+  }
+  const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+  const runtimeManifest = {
+    buildId: process.env.CITYBOT_BUILD_ID || 'unversioned',
+    gatewaySha256: hash(fs.readFileSync(__filename, 'utf8')),
+    startedAt: new Date().toISOString(),
+    model: model_name, parameters: { temperature, max_tokens },
+    toolCatalogueSha256: hash(JSON.stringify(toolSpecs)),
+    tools: toolSpecs.map(tool => ({ name: tool.function.name, domain: actionToDomain.get(tool.function.name) })),
+    domainDescriptions: DOMAIN_THING_TITLES.map(domain => ({
+      domain, sha256: hash(JSON.stringify(domainThings.get(domain)!.getThingDescription()))
+    }))
+  };
   llmThing.setActionHandler('processConversation', async (params: any) => {
     const span = tracer.startSpan('processConversation');
+    let endRequest = () => {};
     try {
       let input: any;
       if (params && typeof params.value === "function") {
@@ -1360,6 +1380,7 @@ async function main() {
       if (!message) return { error: true, message: 'Message cannot be empty' };
       if (message.length > 1000) return { error: true, message: 'Message too long (max 1000 characters)' };
       if (userId == null) return { error: true, message: 'userId is required' };
+      endRequest = requestActivity.begin(userId);
 
       const userKey = userContextKey(userId);
       registerSessionOwner(sessionId, userId);
@@ -1590,12 +1611,14 @@ async function main() {
     } catch (error: any) {
       return { error: true, message: formatUserFacingModelError(error) };
     } finally {
+      endRequest();
       span.end();
     }
   });
 
   llmThing.setActionHandler('processConversationStream', async (params: any) => {
     const span = tracer.startSpan('processConversationStream');
+    let endRequest = () => {};
     try {
       let input;
       if (params && typeof params.value === "function") {
@@ -1611,6 +1634,7 @@ async function main() {
       if (!message) return { started: false, requestId: '', error: 'Message cannot be empty' };
       if (message.length > 1000) return { started: false, requestId: '', error: 'Message too long (max 1000 characters)' };
       if (userId == null) return { started: false, requestId: '', error: 'userId is required' };
+      endRequest = requestActivity.begin(userId);
 
       const userKey = userContextKey(userId);
       registerSessionOwner(sessionId, userId);
@@ -1648,8 +1672,6 @@ async function main() {
 
       // Fire-and-forget streaming task
       (async () => {
-        try {          
-          // Multi-turn planning phase - execute tools until we get a final response
           const toolsUsed: string[] = [];
           let maxPlanningTurns = 5;
           let planningTurn = 0;
@@ -1659,6 +1681,9 @@ async function main() {
           let currentTraceStep: TraceStep | null = null;
 
           let inputMessagesSnapshot: any[] = [];
+          let terminalError: any = null;
+          let finalContent = '';
+        try {
 
           while (planningTurn < maxPlanningTurns) {
             planningTurn++;
@@ -1751,6 +1776,13 @@ async function main() {
               console.error(`❌ Model failed | Turn ${planningTurn} | ${planningElapsedMs}ms | ${modelError?.message || 'Unknown error'}`);
               
               const userMessage = formatUserFacingModelError(modelError);
+              terminalError = modelError;
+              finalContent = userMessage;
+              currentTraceStep = {
+                turn: planningTurn, input_messages: inputMessagesSnapshot,
+                assistant_content: '', reasoning_content: null, tool_calls: [], tool_results: [],
+                tokens_used: null, time_ms: planningElapsedMs
+              };
               emitLLMEvent(userId, 'conversationStream', { 
                 requestId, 
                 token: '', 
@@ -1935,7 +1967,8 @@ async function main() {
               continue;
               
             } else {
-              // No more tool calls - planning is complete              if (currentTraceStep) traceSteps.push(currentTraceStep);
+              // Preserve the final text-only planning turn as well as tool turns.
+              if (currentTraceStep) traceSteps.push(currentTraceStep);
               break;
             }
           }
@@ -1945,7 +1978,7 @@ async function main() {
           }
 
           const resolved = resolveFinalAnswerFromTools(conversation);
-          let finalContent = '';
+          finalContent = '';
 
           if (resolved.source === 'domain' && resolved.content) {
             finalContent = resolved.content;
@@ -2055,12 +2088,8 @@ async function main() {
               }
             } catch (streamError) {
               console.error('❌ Streaming error:', streamError);
-
-              if (finalContent.length > 0) {              } else if (streamCreated) {
-                finalContent = 'The operation completed successfully, but I encountered an issue generating the response. The action has been executed.';
-              } else {
-                finalContent = 'I successfully executed your request (loaded the tiles), though I had trouble connecting to the response generator.';
-              }
+              // A failed response stream is not evidence that a map action succeeded.
+              throw streamError;
             }
           }
 
@@ -2109,22 +2138,6 @@ async function main() {
           await saveChatMessage(userId, sessionId, 'user', message);
           await saveChatMessage(userId, sessionId, 'assistant', finalContent, toolsUsed);
 
-          // Save full reasoning trace for fine-tuning / analysis
-          const trace: ConversationTrace = {
-            request_id: requestId,
-            session_id: sessionId,
-            user_id: userId,
-            user_message: message,
-            system_prompt: systemPrompt,
-            planning_steps: traceSteps,
-            final_response: finalContent,
-            final_reasoning: null, // streaming mode: reasoning not available chunk-by-chunk
-            tools_used: toolsUsed,
-            planning_turns: planningTurn,
-            processing_time_ms: processingTime,
-            model_name: model_name ?? ''
-          };
-          await saveConversationTrace(trace);
           
           // Enhanced cleanup to prevent token overflow
           // Keep fewer messages since Wikipedia now returns FULL complete articles
@@ -2139,6 +2152,7 @@ async function main() {
           const historyLength = JSON.stringify(conversationHistory).length;
           const toolMsgCount = conversationHistory.filter(m => m.role === 'tool').length;
         } catch (err) {
+          terminalError = err;
           const userMessage = formatUserFacingModelError(err);
           console.error(`❌ [${requestId}] stream failed:`, err);
           emitLLMEvent(userId, 'conversationStream', {
@@ -2148,12 +2162,29 @@ async function main() {
             error: true,
             metadata: { response: userMessage, error: userMessage }
           });
+        } finally {
+          if (currentTraceStep && !traceSteps.includes(currentTraceStep)) traceSteps.push(currentTraceStep);
+          const errorMessage = terminalError instanceof Error ? terminalError.message : String(terminalError ?? '');
+          const trace: ConversationTrace = {
+            request_id: requestId, session_id: sessionId, user_id: userId,
+            user_message: message, system_prompt: systemPrompt, planning_steps: traceSteps,
+            final_response: finalContent, final_reasoning: null, tools_used: toolsUsed,
+            planning_turns: planningTurn, processing_time_ms: Date.now() - startTime,
+            model_name: model_name ?? '', model_parameters: { temperature, max_tokens },
+            offered_tools: toolSpecs,
+            status: terminalError ? (/timeout|timed out|abort/i.test(errorMessage) ? 'timed_out' : 'failed') : 'completed',
+            ...(terminalError ? { error: { message: errorMessage, stack: terminalError?.stack } } : {})
+          };
+          try { await saveConversationTrace(trace); }
+          catch (error) { console.error(`[${requestId}] trace persistence failed:`, error); }
+          finally { endRequest(); }
         }
       })();
 
       return { started: true, requestId };
     } catch (error) {
       console.error('processConversationStream error:', error);
+      endRequest();
       return { started: false, requestId: '', error: 'Failed to start streaming' };
     } finally {
       span.end();
@@ -2578,6 +2609,10 @@ async function main() {
   });
   
   // ------------------- Per-User WoT Routes -------------------
+  // Reports the tools actually offered by this process, rather than model self-reports.
+  app.get('/api/study/manifest', requireAuth, (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store').json(runtimeManifest);
+  });
 
   /**
    * Returns a user-scoped City Model Thing Description where event MQTT topics
@@ -2625,6 +2660,7 @@ async function main() {
     }
 
     const { actionName } = req.params;
+    const endRequest = requestActivity.begin(reqUserId);
     try {
       const body = req.body || {};
       const result = await invokeDomainAction(actionName, { ...body, _userId: reqUserId });
@@ -2633,6 +2669,8 @@ async function main() {
     } catch (err: any) {
       console.error(`Error invoking action ${actionName} for user ${reqUserId}:`, err);
       res.status(500).json({ error: err.message || 'Action invocation failed' });
+    } finally {
+      endRequest();
     }
   });
 
@@ -2751,10 +2789,25 @@ async function main() {
     }
   });
 
-  // Reset selected-building state when a new browser session starts (page refresh)
+  // A page reload rebuilds the Cesium scene; this clears the matching gateway context.
+  // Historical chat records remain available. Use one browser tab per evaluation user.
   app.post('/api/session/start', requireAuth, (req: Request, res: Response) => {
-    const userKey = userContextKey(req.session?.userId);
-    perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());    res.json({ success: true });
+    const userId = sessionUserId(req);
+    if (userId == null) return res.status(401).json({ success: false });
+    if (requestActivity.isActive(userId)) {
+      return res.status(409).json({ success: false, message: 'A request is still running. Wait for it to finish, then refresh.' });
+    }
+    const userKey = userContextKey(userId);
+    clearInMemorySessionsForUser(userId);
+    for (const [id, owner] of sessionOwners) if (owner === userId) sessionOwners.delete(id);
+    perUserSelectedBuilding.set(userKey, EMPTY_SELECTED_BUILDING());
+    perUserMapState.set(userKey, DEFAULT_MAP_STATE());
+    for (const [id, report] of earlyUiStatusReports) if (report.userId === userId) earlyUiStatusReports.delete(id);
+    res.json({ success: true, reset: {
+      timestamp: new Date().toISOString(), selectedBuilding: getUserSelectedBuilding(userKey),
+      mapState: getUserMapState(userKey), conversation: 'new browser session',
+      sceneReset: 'requires fresh page', externalData: 'live; not reset'
+    }});
   });
 
   // Serve the login page
@@ -2785,4 +2838,4 @@ async function main() {
 main().catch((error) => {
   console.error('Error starting LLM service:', error);
   process.exit(1);
-}); 
+});

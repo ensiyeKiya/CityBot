@@ -95,5 +95,6 @@ import { appConfig } from './config.js';
       } catch (err) {
         console.error('WoT connection error:', err);
         window.addMessage('❌ Connection error: ' + (err && err.message ? err.message : err), false, true);
+        throw err;
       }
     }

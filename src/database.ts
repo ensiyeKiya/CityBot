@@ -1181,6 +1181,10 @@ export interface ConversationTrace {
   planning_turns: number;
   processing_time_ms: number;
   model_name: string;
+  status?: 'completed' | 'failed' | 'timed_out';
+  error?: { message: string; stack?: string };
+  model_parameters?: { temperature?: number; max_tokens?: number };
+  offered_tools?: unknown[];
 }
 
 export async function saveConversationTrace(trace: ConversationTrace): Promise<void> {
@@ -1208,6 +1212,7 @@ export async function saveConversationTrace(trace: ConversationTrace): Promise<v
     );
   } catch (error) {
     console.error('Error saving conversation trace:', error);
+    throw error;
   }
 }
 

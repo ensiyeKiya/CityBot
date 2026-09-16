@@ -4,6 +4,7 @@
   "description": "A smart chat bot using Web of Things (WoT) with AI capabilities",
   "main": "dist/index.js",
   "scripts": {
+    "test:reliability": "node --test tests/reliability.test.cjs",
     "build": "tsc",
     "watch": "tsc --watch",
     "start": "node dist/index.js",

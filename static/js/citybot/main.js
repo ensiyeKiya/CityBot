@@ -4,6 +4,7 @@
  */
 import './cesium.js';
 import './state.js';
+import './connection.js';
 import './chat.js';
 import './events.js';
 import './wot.js';

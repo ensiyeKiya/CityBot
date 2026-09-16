@@ -1,7 +1,7 @@
 import { appConfig } from './config.js';
 
 window.subscribeToWoTEvents = async function() {
-      if (!window.thing) {        return;
+      if (!window.thing) {        throw new Error('City model connection is not ready');
       }
       
       try {
@@ -1285,6 +1285,14 @@ window.subscribeToWoTEvents = async function() {
               keepalive: 60,
               rejectUnauthorized: false
             });
+            const subscribed = new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                mqttClient.end(true);
+                reject(new Error('Event subscription timeout'));
+              }, 15000);
+              mqttClient.on('citybotReady', () => { clearTimeout(timeout); resolve(); });
+              mqttClient.on('citybotSubscriptionError', (err) => { clearTimeout(timeout); reject(err); });
+            });
             
             mqttClient.on('connect', (connack) => {              
               // Build per-user topic paths using the authenticated user's ID.
@@ -1307,12 +1315,15 @@ window.subscribeToWoTEvents = async function() {
                 `${userPrefix}/events/pollutionReplay`
               ];
               
-              topics.forEach(topic => {
-                mqttClient.subscribe(topic, (err) => {
-                  if (err) {
-                    console.error(`Failed to subscribe to MQTT topic ${topic}:`, err);
-                  } else {                  }
-                });
+              window.setCitybotTransportReady(false);
+              mqttClient.subscribe(topics, (err, granted) => {
+                if (err || !granted || granted.length !== topics.length || granted.some(g => g.qos === 128)) {
+                  window.setCitybotTransportReady(false);
+                  mqttClient.emit('citybotSubscriptionError', err || new Error('Event subscription rejected'));
+                  return;
+                }
+                window.setCitybotTransportReady(true);
+                mqttClient.emit('citybotReady');
               });
               
               // Test connection by publishing a heartbeat
@@ -1355,6 +1366,7 @@ window.subscribeToWoTEvents = async function() {
             });
             
             mqttClient.on('error', (err) => {
+              window.setCitybotTransportReady(false);
               console.error('MQTT WebSocket connection error:', err);
               console.error('Error details:', {
                 message: err.message,
@@ -1364,21 +1376,25 @@ window.subscribeToWoTEvents = async function() {
               });
             });
             
-            mqttClient.on('disconnect', (packet) => {            });
+            mqttClient.on('disconnect', () => window.setCitybotTransportReady(false));
             
-            mqttClient.on('offline', () => {            });
+            mqttClient.on('offline', () => window.setCitybotTransportReady(false));
             
-            mqttClient.on('reconnect', () => {            });
+            mqttClient.on('reconnect', () => window.setCitybotTransportReady(false));
+            mqttClient.on('close', () => window.setCitybotTransportReady(false));
             
             // Store client globally for cleanup
             window.mqttClient = mqttClient;
+            await subscribed;
             
           } catch (error) {
             console.error('Failed to setup MQTT WebSocket connection:', error);
+            throw error;
           }
-        } else {        }        
+        } else { throw new Error('MQTT library is unavailable'); }
       } catch (error) {
         console.error('Error setting up MQTT event handlers:', error);
+        throw error;
       }
       
       // Set up building info panel close button

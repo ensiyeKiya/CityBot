@@ -22,7 +22,9 @@ window.addEventListener('load', async () => {
         setTimeout(() => reject(new Error('WoT initialization timeout')), 45000)
       ),
     ]);
+    window.setCitybotConnection(true);
   } catch (err) {
+    window.setCitybotConnection(false, 'Connection failed. Refresh to retry.');
     console.error('Initialization error:', err);
 
     const errorMessage = err.message || 'Unknown error';

@@ -106,7 +106,7 @@
     -->
     <div id="chatInput">
       <form id="chatForm" autocomplete="off">
-        <button id="micButton" type="button" class="mic red" title="Start voice input">
+        <button id="micButton" disabled type="button" class="mic red" title="Start voice input">
           <svg class="mic-icon mic-icon-off" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
             <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
@@ -120,14 +120,14 @@
             <rect x="6" y="6" width="12" height="12" rx="2" ry="2"/>
           </svg>
         </button>
-        <input id="messageInput" type="text" placeholder="Type your message…" aria-label="Message input" />
-        <button id="sendButton" type="submit" title="Send message">
+        <input id="messageInput" disabled type="text" placeholder="Type your message…" aria-label="Message input" />
+        <button id="sendButton" disabled type="submit" title="Send message">
           <svg class="send-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
           </svg>
         </button>
         <div class="preset-menu-container">
-          <button id="presetMenuButton" type="button" class="preset-menu-btn" title="Preset questions" aria-label="Open preset questions menu">
+          <button id="presetMenuButton" disabled type="button" class="preset-menu-btn" title="Preset questions" aria-label="Open preset questions menu">
             <svg class="ellipsis-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="5" r="2"/>
               <circle cx="12" cy="12" r="2"/>
@@ -158,6 +158,7 @@
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
 
+  <div id="connectionStatus" role="status" style="position:fixed;top:12px;left:12px;padding:8px 12px;background:white;border-radius:8px;z-index:1000">Connecting…</div>
   <script src="/js/citybot/error-handler.js"></script>
   <script type="module" src="/js/citybot/main.js"></script>
 </body>

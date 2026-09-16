@@ -467,6 +467,7 @@
     }
 
     async function handleUserText(text, useTTS = true) {
+      if (!window.requireCitybotReady()) return;
       if (!text.trim()){
         unlockUI();
         return;
@@ -556,6 +557,7 @@
 
     // === LLM + TTS ===
     async function handleUserTextStream(text, useTTS = true) {
+      if (!window.requireCitybotReady()) return;
       if (!text.trim()){
         unlockUI();
         return;
@@ -844,9 +846,7 @@
       chatPanel.classList.remove('recording');
 
       // Unlock UI elements
-      messageInput.disabled = false;
-      sendButton.disabled = false;
-      micButton.disabled = false;
+      window.setCitybotBusy(false);
     }
     window.unlockUI = unlockUI;
 
@@ -982,17 +982,16 @@
     };
 
     async function sendMessageStream () {
+      if (!window.requireCitybotReady()) return;
       const txt = messageInput.value.trim();
       if (!txt) return;
 
       addMessage(txt, true);
       messageInput.value = '';
-      messageInput.disabled = true;
-      sendButton.disabled = true;
-      micButton.disabled = true;
-      presetMenuButton.disabled = true;
+      window.setCitybotBusy(true);
 
       const thinking = addMessage('🧠 Planning...', false, true);
+      let started = false;
 
       try {        const userId = window.requireLoggedInUserId();
 
@@ -1013,6 +1012,8 @@
           throw new Error(actionResult.error || 'Failed to start streaming');
         }
 
+        started = true;
+
         // Bind the request id as soon as we get it
         window.activeStreamRequestId = actionResult.requestId;
         console.log('[CityBot][stream] started requestId=', actionResult.requestId, 'message=', txt);
@@ -1022,12 +1023,11 @@
         console.error('WoT streaming action error:', err);
         addMessage(`Error: ${err.message}`);
       } finally {
-        // QA mode - unlock UI immediately
-        messageInput.disabled = false;
-        sendButton.disabled = false;
-        micButton.disabled = false;
-        presetMenuButton.disabled = false;
-        messageInput.focus();
+        // Acknowledgement only starts the job. Its final event unlocks the UI.
+        if (!started) {
+          window.setCitybotBusy(false);
+          messageInput.focus();
+        }
       }
     }
 

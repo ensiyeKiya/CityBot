@@ -30,15 +30,16 @@ export const authReady = (async function loadCurrentUser() {
         userNameEl.textContent = data.name || data.email;
       }
 
-      try {
-        await fetch('/api/session/start', {
-          method: 'POST',
-          credentials: 'include',
-        });
-        window.llmSelectedBuilding = null;
-      } catch (e) {
-        console.warn('session/start failed:', e);
+      const resetResponse = await fetch('/api/session/start', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const reset = await resetResponse.json();
+      if (!resetResponse.ok || !reset.success) {
+        throw new Error(reset.message || 'Could not initialize a clean session. Refresh to retry.');
       }
+      window.citybotResetReceipt = reset.reset;
+      window.llmSelectedBuilding = null;
 
       return data;
     }
@@ -49,10 +50,11 @@ export const authReady = (async function loadCurrentUser() {
   } catch (error) {
     console.error('Failed to check authentication:', error);
     if (userNameEl) userNameEl.textContent = 'Error';
-    setTimeout(() => { window.location.href = '/login'; }, 2000);
-    return hangUntilRedirect();
+    throw error;
   }
 })();
+// bootstrap observes the same rejected promise after Cesium initialization.
+authReady.catch(() => {});
 
 if (logoutBtn) {
   logoutBtn.addEventListener('click', async () => {
