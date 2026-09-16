@@ -1343,7 +1343,9 @@ window.subscribeToWoTEvents = async function() {
               clean: true,
               connectTimeout: 10000,
               reconnectPeriod: 2000,
-              keepalive: 60,
+              // Nginx currently closes an idle /mqtt WebSocket after 30s.
+              // Ping sooner so evaluation sessions remain continuously ready.
+              keepalive: 20,
               rejectUnauthorized: false
             });
             const subscribed = new Promise((resolve, reject) => {
